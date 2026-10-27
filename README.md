@@ -10,7 +10,7 @@ cross_section_anatomy/
 ├── pipeline.py     propose() auto pass, derive() tissues/layers/areas, click edits, storage
 ├── run_batch.py    folder of images -> anatomy/masks/*.npz + anatomy/qc/*.png (resumable)
 ├── review.py       napari app: fix cells / stele / metaxylem; edit the file path per quadrant
-├── summarise.py    masks -> results/anatomy_summary_YYYY-MM-DD.xlsx
+├── summarise.py    masks -> results/{cell_size_by_file, all_cells, anatomy_summary}_YYYY-MM-DD.xlsx
 ├── Review.command  double-click launcher (Mac): pick the anatomy folder, opens review.py
 └── requirements.txt
 ```
@@ -56,6 +56,9 @@ Everything else is derived by `derive()`, so the editor and the summary always a
 - **Quadrants** = Q1 top-right, Q2 top-left, Q3 bottom-left, Q4 bottom-right around the stele
   centroid, image axes rotated by `settings.json:quadrant_angle_deg`. Sub-samples within an image;
   Q1 of one image is not Q1 of another.
+- **Drawing** (Shift-D cell, Shift-X metaxylem): freehand outline; one owner per pixel, so the drawn
+  object takes any overlap and a neighbour left with < 25% of its area is removed (no slivers,
+  nothing counted twice). A drawn vessel clears cell pixels under it.
 - **Scale**: `settings.json:scale_bar_um` ÷ detected bar length (bottom-left bright run).
   Maize Ortiz images: 100 um = 139 px (0.719 um/px). Setaria: no bar → `um_per_px` in samples.xlsx.
 - **Replicate** = `plant` in samples.xlsx; per_plant averages that plant's images.

@@ -13,6 +13,7 @@ Two click modes (dropdown in the Review panel, or Shift-M to switch):
   Draw cell (button or Shift-D)   trace a missing cell freehand; it takes any overlapping
                    pixels (each pixel belongs to one cell, so nothing is counted twice).
                    In File paths mode the drawn cell also joins the path.
+  Draw metaxylem (button or Shift-X)   same, for a vessel; it also clears cell pixels under it.
 
   File paths  (one spoke per quadrant; its cells, stele -> out, are files 1..n)
     click            add / remove the cell from its quadrant's path (zig-zag is fine)
@@ -40,7 +41,7 @@ RING_COLORS = {k: _PAL[(k - 1) % len(_PAL)] for k in range(1, 41)}
 MODES = ("Fix cells", "File paths")
 
 HELP = {"Fix cells": "Shift-click: add cell   Ctrl-click: delete cell   Alt-click: add/remove metaxylem\n"
-                     "region layer: paint 2 = stele, 1 = root   Shift-D: draw a missing cell",
+                     "region layer: paint 2 = stele, 1 = root   Shift-D: draw a cell   Shift-X: draw a metaxylem vessel",
         "File paths": "click a cell: add/remove it from the path (files numbered from the stele out)\n"
                       "Shift-click: move this quadrant's spoke here   Shift-D: draw a missing cell (joins the path)"}
 
@@ -69,9 +70,10 @@ class Reviewer:
         self.mode_box.changed.connect(self.set_mode)
         self.info = Label(value="")
         self.help = Label(value=HELP[self.mode])
-        b = {n: PushButton(text=n) for n in ("Draw cell", "< Prev", "Next >", "Next unreviewed", "Recompute", "Save + next",
+        b = {n: PushButton(text=n) for n in ("Draw cell", "Draw metaxylem", "< Prev", "Next >", "Next unreviewed", "Recompute", "Save + next",
                                              "Re-propose file paths", "Reset image to auto")}
-        b["Draw cell"].changed.connect(self.start_drawing)
+        b["Draw cell"].changed.connect(lambda: self.start_drawing("cell"))
+        b["Draw metaxylem"].changed.connect(lambda: self.start_drawing("mx"))
         b["< Prev"].changed.connect(lambda: self.open(max(self.i - 1, 0)))
         b["Next >"].changed.connect(lambda: self.open(min(self.i + 1, len(self.files) - 1)))
         b["Next unreviewed"].changed.connect(self.next_unreviewed)
@@ -84,7 +86,8 @@ class Reviewer:
         v = self.viewer
         v.bind_key("Shift-M", lambda _: self.set_mode(MODES[1 - MODES.index(self.mode)]), overwrite=True)
         v.bind_key("Shift-R", lambda _: self.recompute(), overwrite=True)
-        v.bind_key("Shift-D", lambda _: self.start_drawing(), overwrite=True)
+        v.bind_key("Shift-D", lambda _: self.start_drawing("cell"), overwrite=True)
+        v.bind_key("Shift-X", lambda _: self.start_drawing("mx"), overwrite=True)
         v.bind_key("Shift-S", lambda _: self.save_next(), overwrite=True)
         v.bind_key(".", lambda _: self.open(min(self.i + 1, len(self.files) - 1)), overwrite=True)
         v.bind_key(",", lambda _: self.open(max(self.i - 1, 0)), overwrite=True)
@@ -92,7 +95,7 @@ class Reviewer:
 
     def set_mode(self, mode):
         self.mode = mode
-        self.help.value = HELP[mode] + "\n\nKeys:  Shift-M switch mode   Shift-D draw cell   Shift-R redraw   Shift-S save + next   . next   , previous"
+        self.help.value = HELP[mode] + "\n\nKeys:  Shift-M switch mode   Shift-D draw cell   Shift-X draw metaxylem   Shift-R redraw   Shift-S save + next   . next   , previous"
         with self.mode_box.changed.blocked():
             self.mode_box.value = mode
         self.rings.visible = mode == "Fix cells"
@@ -252,14 +255,19 @@ class Reviewer:
         self.mx.refresh()
         self.recompute()
 
-    def start_drawing(self):
-        """Freehand outline -> new cell. Hold the mouse and trace; release closes the shape. Toggles."""
-        if self.viewer.layers.selection.active is self.draw and self.draw.mode != "pan_zoom":
+    def start_drawing(self, target="cell"):
+        """Freehand outline -> new cell or metaxylem vessel. Hold the mouse and trace; release
+        closes the shape. Pressing the same button/key again stops."""
+        drawing = self.viewer.layers.selection.active is self.draw and self.draw.mode != "pan_zoom"
+        if drawing and getattr(self, "draw_target", None) == target:
             return self.stop_drawing()
+        self.draw_target = target
         self.viewer.layers.selection.active = self.draw
         self.draw.mode = "add_polygon_lasso"
-        self.help.value = ("DRAWING: hold the mouse and trace the cell; release to finish. Draw as many as needed.\n"
-                           "Shift-D (or Draw cell) again to stop.")
+        what = "a cell" if target == "cell" else "a METAXYLEM vessel"
+        key = "Shift-D" if target == "cell" else "Shift-X"
+        self.help.value = (f"DRAWING {what}: hold the mouse and trace; release to finish. Draw as many as needed.\n"
+                           f"{key} again to stop.")
 
     def stop_drawing(self):
         self.draw.mode = "pan_zoom"
@@ -270,21 +278,25 @@ class Reviewer:
         if getattr(event, "action", None) != "added" or not len(self.draw.data):
             return
         masks = self.draw.to_masks(mask_shape=self.cells.data.shape)
-        cells = self.cells.data
+        cells, mx = self.cells.data, self.mx.data
+        target = cells if getattr(self, "draw_target", "cell") == "cell" else mx
         centre = P.centre_of(self.region.data)
         for m in masks:
             if m.sum() < 10:
                 continue
-            new = int(cells.max()) + 1
-            hit = {int(l): int((cells == l).sum()) for l in np.unique(cells[m]) if l}
-            cells[m] = new   # one owner per pixel: the drawn cell takes any overlap
+            new = int(target.max()) + 1
+            hit = {int(l): int((target == l).sum()) for l in np.unique(target[m]) if l}
+            target[m] = new   # one owner per pixel: the drawn object takes any overlap
             for l, before in hit.items():   # a neighbour that lost most of itself is gone, not a sliver
-                if (cells == l).sum() < 0.25 * before:
-                    cells[cells == l] = 0
-            if self.mode == "File paths":
+                if (target == l).sum() < 0.25 * before:
+                    target[target == l] = 0
+            if target is mx:
+                cells[m] = 0   # a vessel is not a cell
+            elif self.mode == "File paths":
                 cy, cx = np.argwhere(m).mean(0)
                 self.path_q = np.r_[self.path_q, int(P.quadrant_of(cy, cx, centre, self.angle))].astype(np.int16)
                 self.path_cells = np.r_[self.path_cells, new].astype(np.int32)
+        self.mx.data = mx
         self.cells.data = cells
         with self.draw.events.data.blocker():
             self.draw.data = []
