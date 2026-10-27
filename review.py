@@ -43,7 +43,7 @@ from magicgui.widgets import ComboBox, Container, FloatSlider, FloatSpinBox, Lab
 from napari.qt.threading import thread_worker
 from napari.utils.colormaps import DirectLabelColormap
 from qtpy.QtCore import Qt
-from qtpy.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QMessageBox, QWidget
+from qtpy.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QWidget
 from scipy import ndimage as ndi
 from skimage.draw import polygon as fill_polygon
 
@@ -259,17 +259,27 @@ class Reviewer:
         # editing it). Right panel: what you look at (the numbers, the cortex pattern, what is shown, the keys).
         bar = QWidget()                          # a plain Qt row: tight enough for a laptop screen
         hb = QHBoxLayout(bar)
-        hb.setContentsMargins(6, 2, 6, 2)
-        hb.setSpacing(4)
+        hb.setContentsMargins(6, 3, 6, 3)
+        hb.setSpacing(8)
         self.pick.native.setMinimumContentsLength(16)
         self.scale.native.setMinimumWidth(140)
-        for w in (opn, "um / pixel", self.scale, self.scale_grp, scale_img, summ, 18,
-                  self.pick, prev, nxt, save, 18,
-                  "editing", self.target_box, 10, "image", self.img_op, "outlines", self.ov_op):
-            if isinstance(w, int):
-                hb.addSpacing(w)
-            else:
-                hb.addWidget(QLabel(w) if isinstance(w, str) else w.native)
+        self.scale.native.lineEdit().setMinimumWidth(70)    # room for all 4 decimals (0.7194)
+
+        def group(*items):                       # controls that belong together share one outlined box
+            box = QFrame()
+            box.setObjectName("grp")
+            box.setStyleSheet("#grp {border: 1px solid #5c6370; border-radius: 6px;}")
+            gl = QHBoxLayout(box)
+            gl.setContentsMargins(6, 3, 6, 3)
+            gl.setSpacing(4)
+            for w in items:
+                gl.addWidget(QLabel(w) if isinstance(w, str) else w.native)
+            hb.addWidget(box)
+        group(opn, summ)
+        group("scale (um / pixel)", self.scale, self.scale_grp, scale_img)
+        group(self.pick, prev, nxt, save)
+        group("editing", self.target_box)
+        group("image", self.img_op, "outlines", self.ov_op)
         hb.addStretch(1)
         self.viewer.window.add_dock_widget(bar, area="top", name="Controls")
         help_lbl = QLabel(HELP)
