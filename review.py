@@ -496,10 +496,24 @@ class Reviewer:
             a = np.radians(self.angle + 90 * (q - 1) + np.linspace(0, 90, 19))
             wedge = np.r_[[[cy, cx]], np.c_[cy - L * np.sin(a), cx + L * np.cos(a)]]
             self.quads.add_polygons([wedge], face_color=[0.5, 0.5, 0.5, 0.45], edge_color="transparent")
-        mid = np.radians(self.angle + 45 + 90 * np.arange(4))   # Q1-Q4 names, out near the root edge
-        self.qlab.data = np.c_[cy - 0.42 * L * np.sin(mid), cx + 0.42 * L * np.cos(mid)]
-        self.qlab.features = {"q": [f"Q{q}" + (" dropped" if q in self.dropped else "") for q in (1, 2, 3, 4)]}
-        self.qlab.text = {"string": "{q}", "color": "white", "size": 14}
+        # each quarter: a thin arc just outside the root edge, its name beyond it
+        _, r_root = P.radial_profile(region, (cy, cx))
+        r_root = np.convolve(np.r_[r_root[-10:], r_root, r_root[:10]], np.ones(21) / 21, "valid")   # smooth, wraps round
+        at = lambda t, r: [cy - r * np.sin(np.radians(t)), cx + r * np.cos(np.radians(t))]
+        pad = 0.02 * max(self.gray.shape)
+        names, spots = [], []
+        for q in (1, 2, 3, 4):
+            t0 = self.angle + 90 * (q - 1)
+            ts = np.arange(t0 + 3, t0 + 88, 2.0)
+            arc = np.array([at(t, r_root[int(np.mod(round(t), 360))] + pad) for t in ts])
+            self.quads.add_paths([arc], edge_color=[0.85, 0.85, 0.85, 0.35 if q in self.dropped else 0.8],
+                                 edge_width=1.5)
+            tm = t0 + 45
+            spots.append(at(tm, r_root[int(np.mod(round(tm), 360))] + 3.5 * pad))
+            names.append(f"Q{q}" + (" dropped" if q in self.dropped else ""))
+        self.qlab.data = np.array(spots)
+        self.qlab.features = {"q": names}
+        self.qlab.text = {"string": "{q}", "color": "white", "size": 12}
         self.draw_profile(ft)
         per_q = ft.groupby("quadrant").file.max().reindex([1, 2, 3, 4]).fillna(0).astype(int) if len(ft) else [0] * 4
         self.info.value = (f"{self.i + 1}/{len(self.files)}  ·  {self.status}\n"
