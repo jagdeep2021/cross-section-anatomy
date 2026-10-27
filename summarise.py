@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 from skimage import measure
 
+import pattern_plots as PP
 import pipeline as P
 
 FIXED = ["image_file", "plant", "um_per_px", "include"]
@@ -54,6 +55,8 @@ def main(anatomy_dir: Path):
     tech_rep = samples.groupby(["plant", *groups], dropna=False).cumcount() + 1   # image number within a plant
 
     angle = float(settings.get("quadrant_angle_deg", 0))
+    fig_dir = anatomy_dir.parent / "results" / "figures" / "cortex_pattern"
+    fig_dir.mkdir(parents=True, exist_ok=True)
     img_rows, cell_rows, quad_rows, file_rows, all_rows = [], [], [], [], []
     for f in files:
         z = np.load(f)
@@ -87,6 +90,10 @@ def main(anatomy_dir: Path):
                            dist_from_stele_um=ft.dist_from_stele_px * s,
                            stele_radius_um=ft.stele_radius_px * s, root_radius_um=ft.root_radius_px * s)
             file_rows.append(ft.assign(**meta, tech_rep=tech, status=status))
+            um = not np.isnan(s)
+            PP.image_figure(P.load_gray(Path(settings["image_dir"]) / rel), cells, region, ft,
+                            props.assign(area_um2=props.area_px * s * s), P.centre_of(region), angle, "area_um2" if um else "area_px", "Cell area (µm²)" if um else "Cell area (px)",
+                            f"{rel}  ·  {status}", fig_dir / (Path(rel).with_suffix("").as_posix().replace("/", "__") + ".png"))
 
         mxt = pd.DataFrame(measure.regionprops_table(mx, properties=("label", "area", "centroid", "axis_major_length",
                                                                      "axis_minor_length"))) if mx.any() else pd.DataFrame()
@@ -148,6 +155,22 @@ def main(anatomy_dir: Path):
     per_file_path = first(per_file_path, ["image_file", *keys, "tech_rep", "status", "quadrant", "file",
                                           "n_files_quadrant", "rel_position"]) if len(per_file_path) else per_file_path
     all_cells = pd.concat(all_rows, ignore_index=True)
+    # plan step 2-3: one spline per image x quarter, features on both axes -> one row per profile
+    feat_rows = []
+    for (img, q), d in per_file_path.groupby(["image_file", "quadrant"]) if len(per_file_path) else []:
+        um = d.area_um2.notna().all()
+        y = d.area_um2 if um else d.area_px
+        row = {c: d[c].iloc[0] for c in ["image_file", *keys, "tech_rep", "status", "quadrant", "n_files_quadrant",
+                                          "stele_radius_um", "root_radius_um"]}
+        row.update(area_unit="um2" if um else "px", mean_cell_area=y.mean(), n_cells=len(d))
+        for ax in ("file", "rel_position"):
+            sfx = "_file" if ax == "file" else "_rel"
+            row.update({k + sfx: v for k, v in PP.profile_features(d[ax], y).items()})
+        c = PP.with_bin(all_cells[(all_cells.image_file == img) & (all_cells.quadrant == q)])
+        b = c.groupby("r_bin")[y.name].agg(["mean", "size"])
+        row.update({k + "_radial": v for k, v in PP.profile_features(b.index, b["mean"], b["size"]).items()})
+        feat_rows.append(row)
+    profile_features = pd.DataFrame(feat_rows)
     out_dir = anatomy_dir.parent / "results"
     out_dir.mkdir(exist_ok=True)
     today = dt.date.today().isoformat()
@@ -157,6 +180,14 @@ def main(anatomy_dir: Path):
                               "endodermis; one spoke per quadrant, picked where the cortex is most complete, edited "
                               "by hand. rel_position = (file - 0.5) / n_files_quadrant. plant = biological replicate, "
                               "tech_rep = image number within the plant. status auto = not reviewed yet"),
+            "profile_features": (profile_features, "one row per image x quarter: smoothing spline (GCV) through cell "
+                                 "size vs file, features read off the curve on two axes. _file = absolute file "
+                                 "number; _rel = relative position (file - 0.5) / n_files_quadrant; _radial = all cortical cells of the quarter, "
+                                 f"mean per {N_BINS} r_norm bins (0 = stele edge, 1 = epidermis). peak_height, "
+                                 "peak_pos; rise_slope = (peak - first) / distance; decay_slope = local, over 20% of "
+                                 "the range past the peak; outer_rise = last value - minimum after the peak. Slopes "
+                                 "and heights in area_unit per file (or per unit relative position). NaN = fewer "
+                                 f"than {PP.MIN_PTS} files or feature undefined (peak at an end)"),
             "per_plant_file": (per_plant_file, "plant x file: path cells pooled over quadrants and images "
                                "(display only; analyse per_file_path with plant as the unit)")},
         f"all_cells_{today}.xlsx": {
@@ -177,6 +208,17 @@ def main(anatomy_dir: Path):
             readme.to_excel(w, sheet_name="README", index=False)
             for name, (df, _) in tabs.items():
                 df.to_excel(w, sheet_name=name, index=False)
+    if len(per_file_path) and groups:
+        sp, gt = groups[0], groups[-1]            # e.g. species, genotype
+        (out_dir / "figures").mkdir(exist_ok=True)
+        for spv, d in per_file_path.groupby(sp):
+            um = d.area_um2.notna().any()          # µm² if any image has a scale; images without one are left out
+            drop = d.loc[d.area_um2.isna(), "image_file"].nunique() if um else 0
+            ac = all_cells[all_cells[sp] == spv]
+            PP.group_figure(d[d.area_um2.notna()] if um else d, ac[ac.area_um2.notna()] if um else ac, gt, spv,
+                            "area_um2" if um else "area_px", "Cortical cell area (µm²)" if um else "Cortical cell area (px)",
+                            out_dir / "figures" / f"cortex_pattern_{spv}_{today}.png",
+                            f"  {drop} image(s) without a scale left out." if drop else "")
     out = out_dir
     print(f"{len(per_image)} images ({(per_image.status == 'reviewed').sum()} reviewed), "
           f"{per_plant.shape[0]} plants -> {out}")

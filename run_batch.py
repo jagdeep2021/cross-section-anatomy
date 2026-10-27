@@ -31,18 +31,22 @@ def list_images(image_dir: Path) -> list[Path]:
 
 
 def scale_bar_px(path, bottom=0.06, left=0.35) -> int:
-    """Longest bright horizontal run in the bottom-left corner (0 if no bar)."""
+    """Longest bright horizontal run in the bottom-left corner (0 if no bar). A bar is a thin line on a dark
+    background, so the band a few rows above the run must be mostly dark; a run inside tissue fails that."""
     im = io.imread(path)
     if im.ndim == 3:
         im = im[..., :3].max(axis=2)
     h, w = im.shape
     sub = im[int(h * (1 - bottom)):, :int(w * left)]
+    bright = sub > 0.6 * max(sub.max(), 1)
     best = 0
-    for row in sub > 0.6 * max(sub.max(), 1):
+    for i, row in enumerate(bright):
         d = np.diff(np.concatenate([[0], row.astype(int), [0]]))
-        starts, ends = np.where(d == 1)[0], np.where(d == -1)[0]
-        if len(starts):
-            best = max(best, int((ends - starts).max()))
+        for s0, e0 in zip(np.where(d == 1)[0], np.where(d == -1)[0]):
+            above = bright[max(i - 10, 0):max(i - 4, 0), s0:e0]
+            below = bright[i + 4:i + 10, s0:e0]     # a bar is thin: dark both sides (text sits above it)
+            if e0 - s0 > best and above.size and above.mean() < 0.3 and (below.size == 0 or below.mean() < 0.1):
+                best = int(e0 - s0)
     return best if best >= 20 else 0
 
 

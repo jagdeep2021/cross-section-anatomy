@@ -11,6 +11,8 @@ cross_section_anatomy/
 ├── run_batch.py    folder of images -> anatomy/masks/*.npz + anatomy/qc/*.png (resumable)
 ├── review.py       napari app: fix cells / stele / metaxylem; edit the file path per quadrant
 ├── summarise.py    masks -> results/{cell_size_by_file, all_cells, anatomy_summary}_YYYY-MM-DD.xlsx
+│                   + results/figures/ (cortex pattern per species, per image)
+├── pattern_plots.py  splines, profile features, the figures (also the live plot in review.py)
 ├── Review.command  double-click launcher (Mac): pick the anatomy folder, opens review.py
 └── requirements.txt
 ```
@@ -56,12 +58,28 @@ Everything else is derived by `derive()`, so the editor and the summary always a
 - **Quadrants** = Q1 top-right, Q2 top-left, Q3 bottom-left, Q4 bottom-right around the stele
   centroid, image axes rotated by `settings.json:quadrant_angle_deg`. Sub-samples within an image;
   Q1 of one image is not Q1 of another.
-- **Drawing** (Shift-D cell, Shift-X metaxylem): freehand outline; one owner per pixel, so the drawn
+- **Editing (one model for everything)**: pick the target (keys 1 Cell, 2 Metaxylem, 3 Stele, 4 File path;
+  the name follows the cursor). click = add, ⌘-click = remove (Ctrl on Windows/Linux; napari's
+  "Control" is ⌘ on Mac), Shift-drag = draw an outline and add, ⌘-Shift-drag = outline and remove,
+  drag = pan, Alt-click (file path) = move the spoke. A path outline over an unsegmented gap draws the
+  missing cell and adds it to the path. The dock shows the live cortex pattern for the image.
+- **Drawing rules**: one owner per pixel, so the drawn
   object takes any overlap and a neighbour left with < 25% of its area is removed (no slivers,
   nothing counted twice). Metaxylem differs: a drawn vessel merges with any vessel it touches (vessels
   never touch, so overlap = same vessel; one count, union area), and clears cell pixels under it.
-- **Scale**: `settings.json:scale_bar_um` ÷ detected bar length (bottom-left bright run).
-  Maize Ortiz images: 100 um = 139 px (0.719 um/px). Setaria: no bar → `um_per_px` in samples.xlsx.
+- **Scale**: `settings.json:scale_bar_um` ÷ detected bar length (bottom-left bright run that is a thin line
+  on a dark background; runs inside tissue are rejected). Maize Ortiz images: 100 um = 139 px (0.719 um/px;
+  6 sibs images 111 px). The 8 grayscale shr images have no bar → left out of µm figures until a scale is
+  set. Setaria: no bar; 0.3584 um/px (Jagdeep 2026-10-27) in samples.xlsx.
+- **Cortex pattern** (plan: `5_Projects/04_root_anatomy/01_Cortex patterning/6_cortical_radial_profile_analysis/`):
+  two views on a 0-1 axis, stele → epidermis. *Along the spoke*: path cells, relative file position
+  (file - 0.5) / files in the quarter. *All cortical cells*: r_norm of each cell's centroid, 10 bins; uses
+  every cell, so it is the sanity check on the hand-edited spokes. Curves = cubic smoothing splines,
+  smoothness by GCV (`scipy.interpolate.make_smoothing_spline`). Group figures: plant means per bin, bins
+  with >= 3 plants, band ± 1 SE across plants.
+- **Profile features** (`cell_size_by_file → profile_features`, one row per image × quarter): peak height,
+  peak position, rise slope, decay slope (local: 20% of the range past the peak), outer rise (last value -
+  minimum after the peak), on three axes: `_file` (absolute file), `_rel` (relative file), `_radial`.
 - **Replicate** = `plant` in samples.xlsx; per_plant averages that plant's images.
 
 ## Status (2026-10-27)

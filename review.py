@@ -2,25 +2,24 @@
 
   python review.py <anatomy_dir>          (the folder run_batch.py wrote)
 
-Two click modes (dropdown in the Review panel, or Shift-M to switch):
+Pick what you are editing (keys 1-4; its name follows the cursor):
+  1 Cell   2 Metaxylem   3 Stele   4 File path
 
-  Fix cells
-    Shift-click      add a cell (fills the dark lumen out to its walls)
-    Ctrl-click       delete the cell under the cursor
-    Alt-click        add a metaxylem vessel here; Alt-click a vessel to remove it
-    region layer     paint 2 = stele, 1 = root, 0 = outside (napari brush / fill bucket)
+The same four gestures work on every target:
+  click              add here      cell / vessel: fills the lumen out to its walls
+                                   stele: the cell under the cursor becomes stele
+                                   file path: the cell joins its quarter's path
+  Cmd-click          remove what is under the cursor        (Ctrl-click on Windows/Linux)
+  Shift-drag         draw an outline -> add it               (cell: new cell; vessel: merges with
+                                   vessels it touches; stele: area becomes stele; path: cells inside join)
+  Cmd-Shift-drag     draw an outline -> remove everything inside it
+  drag               pan   ·   scroll  zoom
+  Alt-click          (file path) move this quarter's spoke through the click
 
-  Draw cell (button or Shift-D)   trace a missing cell freehand; it takes any overlapping
-                   pixels (each pixel belongs to one cell, so nothing is counted twice).
-                   In File paths mode the drawn cell also joins the path.
-  Draw metaxylem (button or Shift-X)   same, for a vessel, but a red vessel it touches is merged
-                   into it (one vessel, union area); it also clears cell pixels under it.
+One owner per pixel: a drawn cell takes the pixels it overlaps (a neighbour left with < 25% of
+its area is removed), so nothing is counted twice. A vessel clears the cell pixels under it.
 
-  File paths  (one spoke per quadrant; its cells, stele -> out, are files 1..n)
-    click            add / remove the cell from its quadrant's path (zig-zag is fine)
-    Shift-click      move this quadrant's spoke through the click (path is re-proposed)
-
-Keys:  Shift-M switch mode   Shift-R recompute   Shift-S save + next   . next   , previous
+Keys:  1-4 target   Shift-H hide overlays   Shift-S save + next   , previous   . next
 """
 from __future__ import annotations
 
@@ -30,21 +29,23 @@ from pathlib import Path
 
 import napari
 import numpy as np
-from magicgui.widgets import ComboBox, Container, Label, PushButton
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+from matplotlib.figure import Figure
+from magicgui.widgets import CheckBox, ComboBox, Container, FloatSlider, Label, PushButton
 from napari.utils.colormaps import DirectLabelColormap
 from scipy import ndimage as ndi
+from skimage.draw import polygon as fill_polygon
 
+import pattern_plots as PP
 import pipeline as P
 
 _PAL = ["#3b4cc0", "#1f9e89", "#6ece58", "#fde725", "#f89540", "#e16462",
         "#b12a90", "#7e03a8", "#2c7fb8", "#7fcdbb", "#d95f0e", "#636363"]
 RING_COLORS = {k: _PAL[(k - 1) % len(_PAL)] for k in range(1, 41)}
-MODES = ("Fix cells", "File paths")
-
-HELP = {"Fix cells": "Shift-click: add cell   Ctrl-click: delete cell   Alt-click: add/remove metaxylem\n"
-                     "region layer: paint 2 = stele, 1 = root   Shift-D: draw a cell   Shift-X: draw a metaxylem vessel",
-        "File paths": "click a cell: add/remove it from the path (files numbered from the stele out)\n"
-                      "Shift-click: move this quadrant's spoke here   Shift-D: draw a missing cell (joins the path)"}
+TARGETS = {"Cell": "yellow", "Metaxylem": "red", "Stele": "cyan", "File path": "orange"}
+HELP = ("click  add here\n⌘-click  remove\nShift-drag  draw outline → add\n⌘-Shift-drag  draw outline → remove\n"
+        "drag  pan · scroll  zoom\nFile path: Alt-click moves the spoke\n\n"
+        "1-4 target · Shift-H hide overlays\nShift-S save + next · , / . prev / next")
 
 
 class Reviewer:
@@ -58,7 +59,7 @@ class Reviewer:
             sys.exit(f"No masks in {self.dir / 'masks'}; run run_batch.py first.")
         self.viewer = napari.Viewer(title="Root cross-section review", show=show)
         self.i = None
-        self.mode = MODES[0]
+        self.target = "Cell"
         self._build_dock()
         first = next((k for k, f in enumerate(self.files) if P.load_state(f)[3] != "reviewed"), 0)
         self.open(first)
@@ -67,39 +68,59 @@ class Reviewer:
     def _build_dock(self):
         self.pick = ComboBox(choices=self._choices(), label="image")
         self.pick.changed.connect(lambda v: self.open(self._choices().index(v)))
-        self.mode_box = ComboBox(choices=MODES, value=self.mode, label="click mode")
-        self.mode_box.changed.connect(self.set_mode)
+        self.target_box = ComboBox(choices=list(TARGETS), value=self.target, label="editing")
+        self.target_box.changed.connect(self.set_target)
+        self.img_op = FloatSlider(value=1.0, min=0.1, max=1.0, step=0.05, label="image")
+        self.img_op.changed.connect(lambda v: setattr(self.viewer.layers["image"], "opacity", v))
+        self.show_rings = CheckBox(value=False, text="show rings (gap check)")
+        self.show_rings.changed.connect(lambda v: setattr(self.rings, "visible", v))
+        prev, nxt, save = PushButton(text="< Prev"), PushButton(text="Next >"), PushButton(text="Save + next")
+        prev.changed.connect(lambda: self.open(max(self.i - 1, 0)))
+        nxt.changed.connect(lambda: self.open(min(self.i + 1, len(self.files) - 1)))
+        save.changed.connect(self.save_next)
         self.info = Label(value="")
-        self.help = Label(value=HELP[self.mode])
-        b = {n: PushButton(text=n) for n in ("Draw cell", "Draw metaxylem", "< Prev", "Next >", "Next unreviewed", "Recompute", "Save + next",
-                                             "Re-propose file paths", "Reset image to auto")}
-        b["Draw cell"].changed.connect(lambda: self.start_drawing("cell"))
-        b["Draw metaxylem"].changed.connect(lambda: self.start_drawing("mx"))
-        b["< Prev"].changed.connect(lambda: self.open(max(self.i - 1, 0)))
-        b["Next >"].changed.connect(lambda: self.open(min(self.i + 1, len(self.files) - 1)))
-        b["Next unreviewed"].changed.connect(self.next_unreviewed)
-        b["Recompute"].changed.connect(self.recompute)
-        b["Save + next"].changed.connect(self.save_next)
-        b["Re-propose file paths"].changed.connect(self.repropose_paths)
-        b["Reset image to auto"].changed.connect(self.reset)
-        self.dock = Container(widgets=[self.pick, self.mode_box, *b.values(), self.info, self.help])
+        self.dock = Container(widgets=[self.pick, self.target_box,
+                                       Container(widgets=[prev, nxt], layout="horizontal", labels=False),
+                                       save, self.img_op, self.show_rings, self.info, Label(value=HELP)])
+        for w in self.dock:
+            if isinstance(w, Label):
+                w.native.setWordWrap(True)
+        self.dock.native.setMaximumWidth(320)
+        # live cortex pattern: cell size per quarter, by file and by distance from the stele
+        self.fig = Figure(figsize=(3.2, 3.9), dpi=90, layout="constrained")
+        self.prof_axes = self.fig.subplots(2, 1)
+        self.canvas = FigureCanvasQTAgg(self.fig)
+        self.canvas.setMinimumHeight(330)
+        lay = self.dock.native.layout()
+        lay.insertWidget(lay.count() - 1, self.canvas)
         self.viewer.window.add_dock_widget(self.dock, area="right", name="Review")
+        qv = self.viewer.window._qt_viewer   # napari's own layer panels are not needed
+        for d in (qv.dockLayerList, qv.dockLayerControls):
+            d.setVisible(False)
+
         v = self.viewer
-        v.bind_key("Shift-M", lambda _: self.set_mode(MODES[1 - MODES.index(self.mode)]), overwrite=True)
-        v.bind_key("Shift-R", lambda _: self.recompute(), overwrite=True)
-        v.bind_key("Shift-D", lambda _: self.start_drawing("cell"), overwrite=True)
-        v.bind_key("Shift-X", lambda _: self.start_drawing("mx"), overwrite=True)
+        for k, t in enumerate(TARGETS, 1):
+            v.bind_key(str(k), lambda _, t=t: self.set_target(t), overwrite=True)
+        v.bind_key("Shift-H", lambda _: self.toggle_overlays(), overwrite=True)
         v.bind_key("Shift-S", lambda _: self.save_next(), overwrite=True)
         v.bind_key(".", lambda _: self.open(min(self.i + 1, len(self.files) - 1)), overwrite=True)
         v.bind_key(",", lambda _: self.open(max(self.i - 1, 0)), overwrite=True)
-        v.mouse_drag_callbacks.append(self._click)
+        v.mouse_drag_callbacks.append(self._mouse)
+        v.mouse_move_callbacks.append(self._follow)
+        v.cursor.style = "crosshair"
 
-    def set_mode(self, mode):
-        self.mode = mode
-        self.help.value = HELP[mode] + "\n\nKeys:  Shift-M switch mode   Shift-D draw cell   Shift-X draw metaxylem   Shift-R redraw   Shift-S save + next   . next   , previous"
-        with self.mode_box.changed.blocked():
-            self.mode_box.value = mode
-        self.rings.visible = mode == "Fix cells"
+    def set_target(self, t):
+        self.target = t
+        with self.target_box.changed.blocked():
+            self.target_box.value = t
+        if hasattr(self, "tag"):
+            self.tag.text = {"string": t, "color": TARGETS[t], "size": 11, "translation": [-14, 0]}
+
+    def toggle_overlays(self):
+        over = [l for l in self.viewer.layers if l.name not in ("image", "cursor") and l is not self.rings]
+        show = not any(l.visible for l in over)
+        for l in over:
+            l.visible = show
 
     def _choices(self):
         return [f.stem + ("  ✓" if P.load_state(f)[3] == "reviewed" else "") for f in self.files]
@@ -117,28 +138,24 @@ class Reviewer:
         cells, region, mx, self.status = P.load_state(f)
         v = self.viewer
         v.layers.clear()
-        v.add_image(self.gray, name="image")
-        self.region = v.add_labels(region.astype(np.uint8), name="region (2 stele, 1 root)", opacity=1,
-                                   colormap=DirectLabelColormap(color_dict={None: "transparent", 0: "transparent",
-                                                                            1: (1, 1, 0, 0.06), 2: (0, 0.9, 1, 0.3)}))
-        self.rings = v.add_labels(np.zeros_like(cells), name="rings (gap check)", opacity=0.4,
-                                  colormap=DirectLabelColormap(color_dict={None: "gray", 0: "transparent", **RING_COLORS}))
-        self.mx = v.add_labels(mx, name="metaxylem", opacity=0.6,
-                               colormap=DirectLabelColormap(color_dict={None: "red", 0: "transparent"}))
-        self.path = v.add_labels(np.zeros_like(cells), name="file path", opacity=0.55,
-                                 colormap=DirectLabelColormap(color_dict={None: "orangered", 0: "transparent"}))
-        self.cells = v.add_labels(cells, name="cells", opacity=0.9,
-                                  colormap=DirectLabelColormap(color_dict={None: "yellow", 0: "transparent"}))
+        v.add_image(self.gray, name="image", opacity=self.img_op.value)
+        lab = lambda data, name, cmap, op: v.add_labels(data, name=name, opacity=op,
+                                                       colormap=DirectLabelColormap(color_dict=cmap))
+        self.region = lab(region.astype(np.uint8), "region", {None: "transparent", 0: "transparent",
+                                                               1: (1, 1, 0, 0.06), 2: (0, 0.9, 1, 0.3)}, 1)
+        self.rings = lab(np.zeros_like(cells), "rings", {None: "gray", 0: "transparent", **RING_COLORS}, 0.4)
+        self.mx = lab(mx, "metaxylem", {None: "red", 0: "transparent"}, 0.6)
+        self.path = lab(np.zeros_like(cells), "file path", {None: "orangered", 0: "transparent"}, 0.55)
+        self.cells = lab(cells, "cells", {None: "yellow", 0: "transparent"}, 0.9)
         self.cells.contour = 1
-        self.air = v.add_labels(np.zeros_like(cells), name="air spaces", opacity=0.8,
-                                colormap=DirectLabelColormap(color_dict={None: "magenta", 0: "transparent"}))
+        self.air = lab(np.zeros_like(cells), "air spaces", {None: "magenta", 0: "transparent"}, 0.8)
         self.quads = v.add_shapes(name="quadrants + spokes", face_color="transparent")
-        self.draw = v.add_shapes(name="draw a cell", face_color=[1, 1, 1, 0.2], edge_color="white", edge_width=1)
-        self.draw.events.data.connect(self._on_draw)
-        self.nums = v.add_points(np.empty((0, 2)), name="file numbers", size=0,
-                                 text={"string": "{file}", "color": "white", "size": 9})
-        for lyr in (self.rings, self.air, self.path):
+        self.outline = v.add_shapes(name="outline", edge_color="white", edge_width=1.5, face_color="transparent")
+        self.nums = v.add_points(np.empty((0, 2)), name="file numbers", size=0)
+        self.tag = v.add_points(np.empty((0, 2)), name="cursor", size=0)
+        for lyr in v.layers[1:]:
             lyr.editable = False
+        self.rings.visible = self.show_rings.value
         v.layers.selection.active = self.cells
         props, _, _ = P.derive(cells, region, mx, self.angle)
         saved = P.load_paths(f)
@@ -146,7 +163,7 @@ class Reviewer:
             self.spokes, self.path_q, self.path_cells = P.auto_paths(cells, region, props, self.angle)
         else:
             self.spokes, self.path_q, self.path_cells = (np.array(a) for a in saved)
-        self.set_mode(self.mode)
+        self.set_target(self.target)
         self.recompute()
         with self.pick.changed.blocked():
             self.pick.choices = self._choices()
@@ -161,26 +178,12 @@ class Reviewer:
 
     def save_next(self):
         self.save()
-        self.next_unreviewed()
-
-    def next_unreviewed(self):
         n = len(self.files)
         for k in range(1, n + 1):
             j = (self.i + k) % n
             if P.load_state(self.files[j])[3] != "reviewed":
-                self.open(j)
-                return
+                return self.open(j)
         self.info.value = "All images reviewed. Run summarise.py"
-
-    def reset(self):
-        gray, cells, region, mx = P.propose(self.image_dir / self.rel, self.settings.get("diameter"))
-        self.cells.data, self.region.data, self.mx.data = cells, region, mx
-        self.repropose_paths()
-
-    def repropose_paths(self):
-        props, _, _ = P.derive(self.cells.data, self.region.data, self.mx.data, self.angle)
-        self.spokes, self.path_q, self.path_cells = P.auto_paths(self.cells.data, self.region.data, props, self.angle)
-        self.recompute()
 
     # ---------------------------------------------------------- display
     def recompute(self):
@@ -198,135 +201,171 @@ class Reviewer:
             self.nums.text = {"string": "{file}", "color": "white", "size": 9}
         else:
             self.nums.data = np.empty((0, 2))
-
         cy, cx = P.centre_of(region)
         L = 0.5 * max(self.gray.shape)
-        line = lambda t, c: np.array([[cy, cx], [cy - L * np.sin(np.radians(t)), cx + L * np.cos(np.radians(t))]])
+        line = lambda t: np.array([[cy, cx], [cy - L * np.sin(np.radians(t)), cx + L * np.cos(np.radians(t))]])
         self.quads.data = []
-        self.quads.add_lines([line(self.angle + 90 * k, 0) for k in range(4)], edge_color="white", edge_width=1.2)
-        self.quads.add_lines([line(t, 0) for t in self.spokes], edge_color="orange", edge_width=1.5)
-
+        self.quads.add_lines([line(self.angle + 90 * k) for k in range(4)], edge_color="white", edge_width=1.2)
+        self.quads.add_lines([line(t) for t in self.spokes], edge_color="orange", edge_width=1.5)
+        self.draw_profile(ft)
         per_q = ft.groupby("quadrant").file.max().reindex([1, 2, 3, 4]).fillna(0).astype(int) if len(ft) else [0] * 4
-        self.info.value = (f"{self.i + 1}/{len(self.files)}  {self.rel}  [{self.status}]\n"
-                           f"files along the path, Q1-Q4:  {'/'.join(str(n) for n in per_q)}\n"
-                           f"metaxylem {tr['mx_n']}   cortex cells {tr['n_cortex_cells']}   air spaces {tr['n_air_spaces']}")
+        self.info.value = (f"{self.i + 1}/{len(self.files)}  ·  {self.status}\n"
+                           f"Files Q1-Q4:  {'/'.join(str(n) for n in per_q)}\n"
+                           f"Metaxylem {tr['mx_n']}  ·  air spaces {tr['n_air_spaces']}")
 
-    # ---------------------------------------------------------- clicks
+    def draw_profile(self, ft):
+        """Live cortex pattern: per quarter, along the spoke and all cortical cells (same as the result figures)."""
+        um = self.bar and self.settings.get("scale_bar_um")
+        s = self.settings["scale_bar_um"] / self.bar if um else 1
+        for ax in self.prof_axes:
+            ax.clear()
+        PP.quadrant_profiles(self.prof_axes, ft.assign(area=ft.area_px * s * s),
+                             self.props.assign(area=self.props.area_px * s * s), "area",
+                             "Cell area (µm²)" if um else "Cell area (px)", fontsize=7, compact=True)
+        for ax in self.prof_axes:
+            ax.tick_params(labelsize=7)
+            ax.xaxis.label.set_size(8), ax.yaxis.label.set_size(8), ax.title.set_size(8)
+        self.canvas.draw_idle()
+
+    # ---------------------------------------------------------- mouse
     def _pos(self, event):
         y, x = (int(round(c)) for c in self.cells.world_to_data(event.position)[-2:])
         return (y, x) if 0 <= y < self.gray.shape[0] and 0 <= x < self.gray.shape[1] else None
 
-    def _click(self, viewer, event):
+    def _follow(self, viewer, event):
+        """The target's name rides next to the cursor."""
+        self.tag.data = np.array([event.position[-2:]])
+        self.tag.text = {"string": self.target, "color": TARGETS[self.target], "size": 11, "translation": [-14, 0]}
+
+    def _mouse(self, viewer, event):
         if event.button != 1:
             return
-        if self.viewer.layers.selection.active is getattr(self, "draw", None):
-            return   # clicks are drawing a cell
         mods = set(event.modifiers)
-        pos = self._pos(event)
-        if pos is None:
+        remove = "Control" in mods          # Qt maps the Mac Cmd key to Control
+        start = self._pos(event)
+        if start is None:
             return
-        if self.mode == "Fix cells":
-            if mods & {"Shift", "Control", "Alt"}:
-                self.click(*pos, mods)
+        if "Shift" in mods:                 # draw an outline
+            self.viewer.camera.mouse_pan = False
+            pts = [start]
+            yield
+            while event.type == "mouse_move":
+                p = self._pos(event)
+                if p and p != pts[-1]:
+                    pts.append(p)
+                    if len(pts) % 3 == 0:
+                        self.outline.data = [np.array(pts)]
+                        self.outline.shape_type = ["path"]
+                yield
+            self.viewer.camera.mouse_pan = True
+            self.outline.data = []
+            if len(pts) >= 3:
+                self.outline_edit(np.array(pts), remove)
             return
-        if mods & {"Control", "Alt"}:
-            return
-        dragged = False   # a plain click in path mode must not fire when the user pans
+        dragged = False                     # plain drag pans; a click without movement edits
         yield
         while event.type == "mouse_move":
             dragged = True
             yield
-        if not dragged:
-            self.path_click(*pos, mods)
-
-    def click(self, y, x, mods):
-        cells, mx = self.cells.data, self.mx.data
-        if "Shift" in mods:
-            P.add_cell(self.gray, cells, y, x)
-        elif "Control" in mods:
-            if cells[y, x]:
-                cells[cells == cells[y, x]] = 0
-        elif "Alt" in mods:
-            if mx[y, x]:
-                mx[mx == mx[y, x]] = 0
-            else:
-                P.add_mx(self.gray, mx, cells, y, x)
-                self.mx.data = mx
-        self.cells.data = cells
-        self.mx.refresh()
-        self.recompute()
-
-    def start_drawing(self, target="cell"):
-        """Freehand outline -> new cell or metaxylem vessel. Hold the mouse and trace; release
-        closes the shape. Pressing the same button/key again stops."""
-        drawing = self.viewer.layers.selection.active is self.draw and self.draw.mode != "pan_zoom"
-        if drawing and getattr(self, "draw_target", None) == target:
-            return self.stop_drawing()
-        self.draw_target = target
-        self.viewer.layers.selection.active = self.draw
-        self.draw.mode = "add_polygon_lasso"
-        what = "a cell" if target == "cell" else "a METAXYLEM vessel"
-        key = "Shift-D" if target == "cell" else "Shift-X"
-        self.help.value = (f"DRAWING {what}: hold the mouse and trace; release to finish. Draw as many as needed.\n"
-                           f"{key} again to stop.")
-
-    def stop_drawing(self):
-        self.draw.mode = "pan_zoom"
-        self.viewer.layers.selection.active = self.cells
-        self.set_mode(self.mode)
-
-    def _on_draw(self, event):
-        if getattr(event, "action", None) != "added" or not len(self.draw.data):
+        if dragged:
             return
-        masks = self.draw.to_masks(mask_shape=self.cells.data.shape)
-        cells, mx = self.cells.data, self.mx.data
-        target = cells if getattr(self, "draw_target", "cell") == "cell" else mx
+        if "Alt" in mods and self.target == "File path":
+            self.move_spoke(*start)
+        else:
+            self.click_edit(*start, remove)
+
+    # ---------------------------------------------------------- edits (same rules for every target)
+    def _quadrant(self, mask):
+        cy, cx = np.argwhere(mask).mean(0)
+        return int(P.quadrant_of(cy, cx, P.centre_of(self.region.data), self.angle))
+
+    def _path_add(self, labels):
+        for l in labels:
+            if l and l not in self.path_cells:
+                self.path_q = np.r_[self.path_q, self._quadrant(self.cells.data == l)].astype(np.int16)
+                self.path_cells = np.r_[self.path_cells, l].astype(np.int32)
+
+    def _path_remove(self, labels):
+        keep = ~np.isin(self.path_cells, list(labels))
+        self.path_q, self.path_cells = self.path_q[keep], self.path_cells[keep]
+
+    def _take(self, arr, m, merge):
+        """Give pixels m to a new object in arr; one owner per pixel."""
+        new = int(arr.max()) + 1
+        hit = {int(l): int((arr == l).sum()) for l in np.unique(arr[m]) if l}
+        arr[m] = new
+        for l, before in hit.items():
+            if merge:
+                arr[arr == l] = new                 # vessels never touch: overlap = same vessel
+            elif (arr == l).sum() < 0.25 * before:
+                arr[arr == l] = 0                   # no slivers
+        return new
+
+    def click_edit(self, y, x, remove):
+        cells, mx, region, t = self.cells.data, self.mx.data, self.region.data, self.target
+        lbl = int(cells[y, x])
+        if t == "Cell":
+            if remove and lbl:
+                cells[cells == lbl] = 0
+            elif not remove:
+                P.add_cell(self.gray, cells, y, x)
+        elif t == "Metaxylem":
+            if remove and mx[y, x]:
+                mx[mx == mx[y, x]] = 0
+            elif not remove and not mx[y, x]:
+                P.add_mx(self.gray, mx, cells, y, x)
+        elif t == "Stele":
+            m = cells == lbl if lbl else P.lumen_at(self.gray, y, x, 8 * P.typical_cell_area(cells))
+            region[m & (region >= 1) if remove else m] = 1 if remove else 2
+        elif t == "File path" and lbl:
+            self._path_remove([lbl]) if remove or lbl in self.path_cells else self._path_add([lbl])
+        self._refresh()
+
+    def outline_edit(self, pts, remove):
+        rr, cc = fill_polygon(pts[:, 0], pts[:, 1], self.gray.shape)
+        m = np.zeros(self.gray.shape, bool)
+        m[rr, cc] = True
+        if m.sum() < 10:
+            return
+        cells, mx, region, t = self.cells.data, self.mx.data, self.region.data, self.target
+        inside = [int(l) for l in np.unique(cells[m]) if l and (cells[m] == l).sum() >= 0.5 * (cells == l).sum()]
+        if t == "Cell":
+            if remove:
+                cells[m] = 0
+            else:
+                self._take(cells, m, merge=False)
+        elif t == "Metaxylem":
+            if remove:
+                mx[m] = 0
+            else:
+                self._take(mx, m, merge=True)
+                cells[m] = 0                        # a vessel is not a cell
+        elif t == "Stele":
+            region[m & (region >= 1)] = 1 if remove else 2     # stele stays inside the root
+        elif t == "File path":
+            if remove:
+                self._path_remove(inside)
+            else:
+                empty = m & (cells == 0)            # an outline over a gap draws the missing cell
+                if empty.sum() > 0.3 * m.sum():
+                    inside.append(self._take(cells, m, merge=False))
+                self._path_add(inside)
+        self._refresh()
+
+    def move_spoke(self, y, x):
         centre = P.centre_of(self.region.data)
-        for m in masks:
-            if m.sum() < 10:
-                continue
-            new = int(target.max()) + 1
-            hit = {int(l): int((target == l).sum()) for l in np.unique(target[m]) if l}
-            target[m] = new   # one owner per pixel: the drawn object takes any overlap
-            for l, before in hit.items():
-                if target is mx:   # vessels never touch, so an overlapped vessel is the same vessel: merge
-                    target[target == l] = new
-                elif (target == l).sum() < 0.25 * before:   # a cell that lost most of itself is gone, not a sliver
-                    target[target == l] = 0
-            if target is mx:
-                cells[m] = 0   # a vessel is not a cell
-            elif self.mode == "File paths":
-                cy, cx = np.argwhere(m).mean(0)
-                self.path_q = np.r_[self.path_q, int(P.quadrant_of(cy, cx, centre, self.angle))].astype(np.int16)
-                self.path_cells = np.r_[self.path_cells, new].astype(np.int32)
-        self.mx.data = mx
-        self.cells.data = cells
-        with self.draw.events.data.blocker():
-            self.draw.data = []
+        q = int(P.quadrant_of(y, x, centre, self.angle))
+        t = float(np.degrees(np.arctan2(-(y - centre[0]), x - centre[1])))
+        self.spokes[q - 1] = t
+        keep = self.path_q != q
+        new = P.path_along(self.cells.data, self.region.data, self.props, t)
+        self.path_q = np.r_[self.path_q[keep], np.full(len(new), q)].astype(np.int16)
+        self.path_cells = np.r_[self.path_cells[keep], new].astype(np.int32)
         self.recompute()
 
-    def path_click(self, y, x, mods):
-        centre = P.centre_of(self.region.data)
-        if "Shift" in mods:  # move this quadrant's spoke through the click
-            q = int(P.quadrant_of(y, x, centre, self.angle))
-            t = float(np.degrees(np.arctan2(-(y - centre[0]), x - centre[1])))
-            self.spokes[q - 1] = t
-            keep = self.path_q != q
-            new = P.path_along(self.cells.data, self.region.data, self.props, t)
-            self.path_q = np.r_[self.path_q[keep], np.full(len(new), q)].astype(np.int16)
-            self.path_cells = np.r_[self.path_cells[keep], new].astype(np.int32)
-        else:
-            lbl = int(self.cells.data[y, x])
-            if not lbl:
-                return
-            if lbl in self.path_cells:
-                keep = self.path_cells != lbl
-                self.path_q, self.path_cells = self.path_q[keep], self.path_cells[keep]
-            else:
-                cyx = ndi.center_of_mass(self.cells.data == lbl)
-                q = int(P.quadrant_of(cyx[0], cyx[1], centre, self.angle))
-                self.path_q = np.r_[self.path_q, q].astype(np.int16)
-                self.path_cells = np.r_[self.path_cells, lbl].astype(np.int32)
+    def _refresh(self):
+        for lyr in (self.cells, self.mx, self.region):
+            lyr.refresh()
         self.recompute()
 
 
