@@ -291,7 +291,9 @@ def radial_position(props: pd.DataFrame, region: np.ndarray, centre) -> pd.DataF
     deg = np.mod(np.round(np.degrees(np.arctan2(dy, dx))), 360).astype(int)
     r = np.hypot(dy, dx)
     width = np.maximum(r_rt[deg] - r_st[deg], 1)
-    return pd.DataFrame({"r_norm": (r - r_st[deg]) / width, "dist_from_stele_px": r - r_st[deg],
+    return pd.DataFrame({"angle_rad": np.mod(np.arctan2(dy, dx), 2 * np.pi), "r_px": r,
+                         "r_norm": (r - r_st[deg]) / width, "dist_from_stele_px": r - r_st[deg],
+                         "stele_radius_px": r_st[deg], "root_radius_px": r_rt[deg],
                          "cortex_width_px": width}, index=props.index)
 
 

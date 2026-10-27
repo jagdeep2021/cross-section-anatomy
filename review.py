@@ -10,6 +10,10 @@ Two click modes (dropdown in the Review panel, or Shift-M to switch):
     Alt-click        add a metaxylem vessel here; Alt-click a vessel to remove it
     region layer     paint 2 = stele, 1 = root, 0 = outside (napari brush / fill bucket)
 
+  Draw cell (button or Shift-D)   trace a missing cell freehand; it takes any overlapping
+                   pixels (each pixel belongs to one cell, so nothing is counted twice).
+                   In File paths mode the drawn cell also joins the path.
+
   File paths  (one spoke per quadrant; its cells, stele -> out, are files 1..n)
     click            add / remove the cell from its quadrant's path (zig-zag is fine)
     Shift-click      move this quadrant's spoke through the click (path is re-proposed)
@@ -36,9 +40,9 @@ RING_COLORS = {k: _PAL[(k - 1) % len(_PAL)] for k in range(1, 41)}
 MODES = ("Fix cells", "File paths")
 
 HELP = {"Fix cells": "Shift-click: add cell   Ctrl-click: delete cell   Alt-click: add/remove metaxylem\n"
-                     "region layer: paint 2 = stele, 1 = root",
+                     "region layer: paint 2 = stele, 1 = root   Shift-D: draw a missing cell",
         "File paths": "click a cell: add/remove it from the path (files numbered from the stele out)\n"
-                      "Shift-click: move this quadrant's spoke here"}
+                      "Shift-click: move this quadrant's spoke here   Shift-D: draw a missing cell (joins the path)"}
 
 
 class Reviewer:
@@ -65,8 +69,9 @@ class Reviewer:
         self.mode_box.changed.connect(self.set_mode)
         self.info = Label(value="")
         self.help = Label(value=HELP[self.mode])
-        b = {n: PushButton(text=n) for n in ("< Prev", "Next >", "Next unreviewed", "Recompute", "Save + next",
+        b = {n: PushButton(text=n) for n in ("Draw cell", "< Prev", "Next >", "Next unreviewed", "Recompute", "Save + next",
                                              "Re-propose file paths", "Reset image to auto")}
+        b["Draw cell"].changed.connect(self.start_drawing)
         b["< Prev"].changed.connect(lambda: self.open(max(self.i - 1, 0)))
         b["Next >"].changed.connect(lambda: self.open(min(self.i + 1, len(self.files) - 1)))
         b["Next unreviewed"].changed.connect(self.next_unreviewed)
@@ -79,6 +84,7 @@ class Reviewer:
         v = self.viewer
         v.bind_key("Shift-M", lambda _: self.set_mode(MODES[1 - MODES.index(self.mode)]), overwrite=True)
         v.bind_key("Shift-R", lambda _: self.recompute(), overwrite=True)
+        v.bind_key("Shift-D", lambda _: self.start_drawing(), overwrite=True)
         v.bind_key("Shift-S", lambda _: self.save_next(), overwrite=True)
         v.bind_key(".", lambda _: self.open(min(self.i + 1, len(self.files) - 1)), overwrite=True)
         v.bind_key(",", lambda _: self.open(max(self.i - 1, 0)), overwrite=True)
@@ -86,7 +92,7 @@ class Reviewer:
 
     def set_mode(self, mode):
         self.mode = mode
-        self.help.value = HELP[mode] + "\n\nKeys:  Shift-M switch mode   Shift-R redraw   Shift-S save + next   . next   , previous"
+        self.help.value = HELP[mode] + "\n\nKeys:  Shift-M switch mode   Shift-D draw cell   Shift-R redraw   Shift-S save + next   . next   , previous"
         with self.mode_box.changed.blocked():
             self.mode_box.value = mode
         self.rings.visible = mode == "Fix cells"
@@ -123,6 +129,8 @@ class Reviewer:
         self.air = v.add_labels(np.zeros_like(cells), name="air spaces", opacity=0.8,
                                 colormap=DirectLabelColormap(color_dict={None: "magenta", 0: "transparent"}))
         self.quads = v.add_shapes(name="quadrants + spokes", face_color="transparent")
+        self.draw = v.add_shapes(name="draw a cell", face_color=[1, 1, 1, 0.2], edge_color="white", edge_width=1)
+        self.draw.events.data.connect(self._on_draw)
         self.nums = v.add_points(np.empty((0, 2)), name="file numbers", size=0,
                                  text={"string": "{file}", "color": "white", "size": 9})
         for lyr in (self.rings, self.air, self.path):
@@ -207,6 +215,8 @@ class Reviewer:
     def _click(self, viewer, event):
         if event.button != 1:
             return
+        if self.viewer.layers.selection.active is getattr(self, "draw", None):
+            return   # clicks are drawing a cell
         mods = set(event.modifiers)
         pos = self._pos(event)
         if pos is None:
@@ -240,6 +250,44 @@ class Reviewer:
                 self.mx.data = mx
         self.cells.data = cells
         self.mx.refresh()
+        self.recompute()
+
+    def start_drawing(self):
+        """Freehand outline -> new cell. Hold the mouse and trace; release closes the shape. Toggles."""
+        if self.viewer.layers.selection.active is self.draw and self.draw.mode != "pan_zoom":
+            return self.stop_drawing()
+        self.viewer.layers.selection.active = self.draw
+        self.draw.mode = "add_polygon_lasso"
+        self.help.value = ("DRAWING: hold the mouse and trace the cell; release to finish. Draw as many as needed.\n"
+                           "Shift-D (or Draw cell) again to stop.")
+
+    def stop_drawing(self):
+        self.draw.mode = "pan_zoom"
+        self.viewer.layers.selection.active = self.cells
+        self.set_mode(self.mode)
+
+    def _on_draw(self, event):
+        if getattr(event, "action", None) != "added" or not len(self.draw.data):
+            return
+        masks = self.draw.to_masks(mask_shape=self.cells.data.shape)
+        cells = self.cells.data
+        centre = P.centre_of(self.region.data)
+        for m in masks:
+            if m.sum() < 10:
+                continue
+            new = int(cells.max()) + 1
+            hit = {int(l): int((cells == l).sum()) for l in np.unique(cells[m]) if l}
+            cells[m] = new   # one owner per pixel: the drawn cell takes any overlap
+            for l, before in hit.items():   # a neighbour that lost most of itself is gone, not a sliver
+                if (cells == l).sum() < 0.25 * before:
+                    cells[cells == l] = 0
+            if self.mode == "File paths":
+                cy, cx = np.argwhere(m).mean(0)
+                self.path_q = np.r_[self.path_q, int(P.quadrant_of(cy, cx, centre, self.angle))].astype(np.int16)
+                self.path_cells = np.r_[self.path_cells, new].astype(np.int32)
+        self.cells.data = cells
+        with self.draw.events.data.blocker():
+            self.draw.data = []
         self.recompute()
 
     def path_click(self, y, x, mods):

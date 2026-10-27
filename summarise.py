@@ -20,6 +20,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from skimage import measure
 
 import pipeline as P
 
@@ -50,9 +51,10 @@ def main(anatomy_dir: Path):
     samples["include"] = samples["include"].fillna("yes").astype(str).str.lower()
     groups = [c for c in samples.columns if c not in FIXED]
     samples = samples.set_index("image_file")
+    tech_rep = samples.groupby(["plant", *groups], dropna=False).cumcount() + 1   # image number within a plant
 
     angle = float(settings.get("quadrant_angle_deg", 0))
-    img_rows, cell_rows, quad_rows, file_rows = [], [], [], []
+    img_rows, cell_rows, quad_rows, file_rows, all_rows = [], [], [], [], []
     for f in files:
         z = np.load(f)
         rel = str(z["image_file"])
@@ -75,11 +77,34 @@ def main(anatomy_dir: Path):
                          **{k.replace("_px", "_um2"): v * s * s for k, v in tr.items() if k.endswith("area_px")},
                          **{k.replace("_px", "_um"): v * s for k, v in tr.items() if k.endswith("width_px")}})
 
+        tech = int(tech_rep[rel])
         if len(ft):
-            ft = ft.assign(area_um2=ft.area_px * s * s, major_um=ft.major_px * s, minor_um=ft.minor_px * s,
+            pr = props.set_index("label")
+            ft = ft.join(pr[["angle_rad", "stele_radius_px", "root_radius_px"]], on="label")
+            ft = ft.assign(n_files_quadrant=ft.quadrant.map(nq),
+                           rel_position=(ft.file - 0.5) / ft.quadrant.map(nq),
+                           area_um2=ft.area_px * s * s, major_um=ft.major_px * s, minor_um=ft.minor_px * s,
                            dist_from_stele_um=ft.dist_from_stele_px * s,
-                           n_files_quadrant=ft.quadrant.map(nq))
-            file_rows.append(ft.assign(**meta, status=status))
+                           stele_radius_um=ft.stele_radius_px * s, root_radius_um=ft.root_radius_px * s)
+            file_rows.append(ft.assign(**meta, tech_rep=tech, status=status))
+
+        mxt = pd.DataFrame(measure.regionprops_table(mx, properties=("label", "area", "centroid", "axis_major_length",
+                                                                     "axis_minor_length"))) if mx.any() else pd.DataFrame()
+        if len(mxt):
+            mxt = mxt.rename(columns={"centroid-0": "y", "centroid-1": "x", "area": "area_px",
+                                      "axis_major_length": "major_px", "axis_minor_length": "minor_px"})
+            mxt = mxt.join(P.radial_position(mxt, region, P.centre_of(region)))
+            mxt["tissue"], mxt["quadrant"] = "metaxylem", P.quadrant_of(mxt.y, mxt.x, P.centre_of(region), angle)
+        allc = pd.concat([props, mxt], ignore_index=True)
+        allc["file"] = allc.label.where(allc.tissue != "metaxylem").map(dict(zip(ft.label, ft.file))) if len(ft) else np.nan
+        allc["ring"] = allc.layer if "layer" in allc else np.nan
+        allc = allc.assign(area_um2=allc.area_px * s * s, major_um=allc.major_px * s, minor_um=allc.minor_px * s,
+                           r_um=allc.r_px * s, dist_from_stele_um=allc.dist_from_stele_px * s,
+                           angle_deg=np.degrees(allc.angle_rad))
+        all_rows.append(allc.assign(**meta, tech_rep=tech, status=status)[
+            [*meta, "tech_rep", "status", "label", "tissue", "quadrant", "file", "ring", "x", "y",
+             "angle_rad", "angle_deg", "r_px", "r_um", "r_norm", "dist_from_stele_um",
+             "area_px", "area_um2", "major_um", "minor_um"]])
 
         qt = P.quadrant_traits(cells, region, mx, props, angle)
         qt = qt.drop(columns=[c for c in qt.columns if c.startswith("n_layers")])
@@ -120,34 +145,39 @@ def main(anatomy_dir: Path):
                       n_reviewed=("status", lambda s: int((s == "reviewed").sum())),
                       **{c: (c, "mean") for c in num}).reset_index())
 
-    sheets = {
-        "per_plant": ("plant (mean of its images)",
-                      "n_reviewed = images checked by hand; report only fully reviewed plants. "
-                      "n_files = median over the 4 quadrant paths of the number of cortical files"),
-        "per_plant_file": ("plant x file",
-                           "CELL SIZE BY FILE: file 1 = next to the endodermis; cells pooled over the 4 quadrant "
-                           "paths and the plant's images. n_cells drops for outer files where some quadrants have fewer files"),
-        "per_plant_radial": ("plant x radial bin",
-                             f"r_norm 0 = stele edge, 1 = root edge along each cell's direction; {N_BINS} equal bins. "
-                             "All cortical cells, not just paths; compares position when file number differs"),
-        "per_image": ("image", "status auto = not checked in review.py yet"),
-        "per_file_path": ("path cell (image x quadrant x file)",
-                          "one spoke per quadrant, picked where the cortex is most complete, then edited by hand"),
-        "per_quadrant": ("image x quadrant",
-                         f"Q1 top-right, Q2 top-left, Q3 bottom-left, Q4 bottom-right around the stele centre "
-                         f"(rotated {angle:g} deg). Sub-samples within an image, not comparable across images"),
-        "per_cell": ("cortical cell", "every cortical cell; file filled only for path cells. air spaces excluded"),
-    }
-    readme = pd.DataFrame([(k, a, b) for k, (a, b) in sheets.items()], columns=["sheet", "one row per", "note"])
+    per_file_path = first(per_file_path, ["image_file", *keys, "tech_rep", "status", "quadrant", "file",
+                                          "n_files_quadrant", "rel_position"]) if len(per_file_path) else per_file_path
+    all_cells = pd.concat(all_rows, ignore_index=True)
     out_dir = anatomy_dir.parent / "results"
     out_dir.mkdir(exist_ok=True)
-    out = out_dir / f"anatomy_summary_{dt.date.today().isoformat()}.xlsx"
-    tables = {"per_plant": per_plant, "per_plant_file": per_plant_file, "per_plant_radial": per_plant_radial,
-              "per_image": per_image, "per_file_path": per_file_path, "per_quadrant": per_quadrant, "per_cell": per_cell}
-    with pd.ExcelWriter(out) as w:
-        readme.to_excel(w, sheet_name="README", index=False)
-        for name, df in tables.items():
-            df.to_excel(w, sheet_name=name, index=False)
+    today = dt.date.today().isoformat()
+    files_out = {
+        f"cell_size_by_file_{today}.xlsx": {
+            "per_file_path": (per_file_path, "one path cell per row: image x quadrant x file. file 1 = next to the "
+                              "endodermis; one spoke per quadrant, picked where the cortex is most complete, edited "
+                              "by hand. rel_position = (file - 0.5) / n_files_quadrant. plant = biological replicate, "
+                              "tech_rep = image number within the plant. status auto = not reviewed yet"),
+            "per_plant_file": (per_plant_file, "plant x file: path cells pooled over quadrants and images "
+                               "(display only; analyse per_file_path with plant as the unit)")},
+        f"all_cells_{today}.xlsx": {
+            "all_cells": (all_cells, "every segmented object: tissue = cortex | stele | epidermis | air_space | "
+                          "unassigned | metaxylem. angle_rad counter-clockwise from the image's right, around the "
+                          "stele centre. r_norm 0 = stele edge, 1 = root edge along the object's direction. "
+                          "file = path file (path cells only); ring = adjacency hops from the stele (gap check, runs high)")},
+        f"anatomy_summary_{today}.xlsx": {
+            "per_plant": (per_plant, "plant means of per_image; n_reviewed = images checked by hand"),
+            "per_image": (per_image, "whole-root traits per image; n_files = median of the 4 quadrant paths"),
+            "per_quadrant": (per_quadrant, f"Q1 top-right, Q2 top-left, Q3 bottom-left, Q4 bottom-right around the "
+                             f"stele centre (rotated {angle:g} deg); sub-samples within an image"),
+            "per_plant_radial": (per_plant_radial, f"all cortical cells in {N_BINS} equal r_norm bins (1 = inner)")},
+    }
+    for fname, tabs in files_out.items():
+        readme = pd.DataFrame([(k, n) for k, (_, n) in tabs.items()], columns=["sheet", "what it is"])
+        with pd.ExcelWriter(out_dir / fname) as w:
+            readme.to_excel(w, sheet_name="README", index=False)
+            for name, (df, _) in tabs.items():
+                df.to_excel(w, sheet_name=name, index=False)
+    out = out_dir
     print(f"{len(per_image)} images ({(per_image.status == 'reviewed').sum()} reviewed), "
           f"{per_plant.shape[0]} plants -> {out}")
 
