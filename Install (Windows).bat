@@ -11,7 +11,7 @@ set UV_CACHE_DIR=%CD%\.uv\cache
 echo Installing Python and the packages...
 .uv\uv.exe venv --python 3.14 --allow-existing .venv || goto :fail
 .uv\uv.exe pip install --python .venv\Scripts\python.exe -r requirements.txt || goto :fail
-.venv\Scripts\python.exe -c "import napari, cellpose, pipeline, review; print('All set. Double-click Review (Windows).bat to start.')" || goto :fail
+.venv\Scripts\python.exe -c "import napari, cellpose, pipeline, review; print('All set. Double-click Open app (Windows).bat to start.')" || goto :fail
 pause
 exit /b 0
 :fail

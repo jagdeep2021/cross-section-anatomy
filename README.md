@@ -13,7 +13,7 @@ cross_section_anatomy/
 ├── summarise.py    masks -> results/{cell_size_by_file, all_cells, anatomy_summary}_YYYY-MM-DD.xlsx
 │                   + results/figures/ (cortex pattern per species, per image)
 ├── pattern_plots.py  splines, profile features, the figures (also the live plot in review.py)
-├── Install / Measure / Review / Summarise (Mac).command, (Windows).bat   double-click launchers
+├── Install (…), Open app (…)   double-click launchers (Mac .command, Windows .bat)
 └── requirements.txt
 ```
 
@@ -27,7 +27,8 @@ cd ~/lab-code/09_phenotyping_pipelines/scripts/cross_section_anatomy
 ```
 Setup once: double-click `Install (Mac).command` or `Install (Windows).bat`. It uses uv to install
 Python 3.14 and requirements.txt into this folder (`.uv/`, `.venv/`; no admin rights; ~1 min, 2.8 GB;
-delete the folder to uninstall). Then `Review (…)` and `Summarise (…)` ask for the anatomy folder.
+delete the folder to uninstall). Then `Open app (…)`: the app has Measure images…, Open…, the um/pixel scale and Summarise as buttons,
+plus the outline editor; `run_batch.py` / `summarise.py` still work from the command line.
 On a Mac, a downloaded .command opens the first time only with right-click → Open.
 
 ## Editable state

@@ -1,6 +1,12 @@
-"""Review and correct the auto pass, image by image, in napari.
+"""The app: measure an image set, set the scale, check outlines, make the tables. In napari.
 
-  python review.py <anatomy_dir>          (the folder run_batch.py wrote)
+  python review.py [<anatomy_dir>]
+
+Buttons:  Measure images...  pick the folder of images; every image is outlined (anatomy/ is made next
+                             to that folder); progress shows in the panel. Stop/resume any time.
+          Open...            an experiment measured before (its folder or its anatomy folder)
+          um / pixel         the scale: always typed by you (scale bars are not read)
+          Summarise          tables + figures -> results/ next to anatomy/
 
 Pick what you are editing (keys 1-4; its name follows the cursor):
   1 Cell   2 Metaxylem   3 Stele   4 File path
@@ -24,6 +30,8 @@ Keys:  1-4 target   Shift-H hide overlays   Shift-S save + next   , previous   .
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -31,13 +39,18 @@ import napari
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from magicgui.widgets import CheckBox, ComboBox, Container, FloatSlider, Label, PushButton
+from magicgui.widgets import CheckBox, ComboBox, Container, FloatSlider, FloatSpinBox, Label, PushButton
+from napari.qt.threading import thread_worker
 from napari.utils.colormaps import DirectLabelColormap
+from qtpy.QtWidgets import QFileDialog
 from scipy import ndimage as ndi
 from skimage.draw import polygon as fill_polygon
 
+import pandas as pd
 import pattern_plots as PP
 import pipeline as P
+import run_batch as RB
+import summarise as SUM
 
 _PAL = ["#3b4cc0", "#1f9e89", "#6ece58", "#fde725", "#f89540", "#e16462",
         "#b12a90", "#7e03a8", "#2c7fb8", "#7fcdbb", "#d95f0e", "#636363"]
@@ -50,25 +63,123 @@ HELP = (f"click  add here\n{CMD}-click  remove\nShift-drag  draw outline → add
 
 
 class Reviewer:
-    def __init__(self, anatomy_dir: Path, show: bool = True):
-        self.dir = Path(anatomy_dir)
-        self.settings = json.loads((self.dir / "settings.json").read_text())
-        self.image_dir = P.image_dir(self.dir, self.settings)
-        self.angle = float(self.settings.get("quadrant_angle_deg", 0))
-        self.files = sorted((self.dir / "masks").glob("*.npz"))
-        if not self.files:
-            sys.exit(f"No masks in {self.dir / 'masks'}; run run_batch.py first.")
-        self.viewer = napari.Viewer(title="Root cross-section review", show=show)
-        self.i = None
+    def __init__(self, anatomy_dir: Path | None = None, show: bool = True):
+        self.dir, self.files, self.i, self.busy = None, [], None, False
+        self.viewer = napari.Viewer(title="Root cross-section anatomy", show=show)
         self.target = "Cell"
         self._build_dock()
+        if anatomy_dir:
+            self.load_experiment(anatomy_dir)
+        else:
+            self.info.value = "Start: Measure images... (new images) or Open... (measured before)."
+
+    def load_experiment(self, d):
+        d = Path(d)
+        if not (d / "settings.json").exists() and (d / "anatomy" / "settings.json").exists():
+            d = d / "anatomy"                          # the experiment folder was picked
+        if not (d / "settings.json").exists():
+            self.info.value = f"No measurements in {d}. Use Measure images... first."
+            return
+        self.dir = d
+        self.settings = json.loads((d / "settings.json").read_text())
+        self.image_dir = P.image_dir(d, self.settings)
+        self.angle = float(self.settings.get("quadrant_angle_deg", 0))
+        self.files = sorted((d / "masks").glob("*.npz"))
+        self.i = None
+        if not self.files:
+            self.info.value = "No images measured yet."
+            return
+        with self.pick.changed.blocked():
+            self.pick.choices = self._choices()
         first = next((k for k, f in enumerate(self.files) if P.load_state(f)[3] != "reviewed"), 0)
         self.open(first)
 
+    # ---------------------------------------------------------- measure / scale / summarise
+    def _folder(self, title):
+        return QFileDialog.getExistingDirectory(self.dock.native, title) or None
+
+    def _run(self, work, done):
+        """Run a slow job in the background; the panel shows its progress lines."""
+        if self.busy:
+            return
+        self.busy = True
+        w = work()
+        w.yielded.connect(lambda m: setattr(self.info, "value", m))
+        w.returned.connect(lambda res: (setattr(self, "busy", False), done(res)))
+        w.errored.connect(lambda e: (setattr(self, "busy", False), setattr(self.info, "value", f"Stopped: {e}")))
+        w.start()
+
+    def measure(self):
+        d = self._folder("Choose the folder with the images (e.g. raw)")
+        if not d:
+            return
+
+        @thread_worker
+        def work():
+            gen = RB.batch(d)
+            try:
+                while True:
+                    i, n, line = next(gen)
+                    yield f"Measuring image {i} of {n}\n{line}\n(you can close the app; Measure again continues)"
+            except StopIteration as stop:
+                return stop.value
+
+        self._run(work, lambda out: (self.load_experiment(out),
+                                     setattr(self.info, "value", self.info.value + "\n\nMeasured. Now type the "
+                                             "um / pixel scale, then Summarise.")))
+
+    def open_experiment(self):
+        d = self._folder("Choose the experiment folder (or its anatomy folder)")
+        if d:
+            self.load_experiment(d)
+
+    def set_scale(self, all_in_group: bool):
+        if self.dir is None or self.i is None:
+            return
+        f = SUM.write_samples(self.dir)
+        s = pd.read_excel(f, dtype={"image_file": str, "plant": str})
+        rows = s.image_file.str.split("/").str[0] == self.rel.split("/")[0] if all_in_group else s.image_file == self.rel
+        s.loc[rows, "um_per_px"] = self.scale.value if self.scale.value > 0 else np.nan
+        try:
+            s.to_excel(f, index=False)
+        except PermissionError:
+            self.info.value = "samples.xlsx is open in Excel: close it, then set the scale again."
+            return
+        self.recompute()
+        self.info.value += f"\nScale {self.scale.value:g} um/px set for {int(rows.sum())} image(s)."
+
+    def summarise(self):
+        if self.dir is None:
+            return
+
+        @thread_worker
+        def work():
+            yield "Making the tables and figures... (1-3 min)"
+            SUM.main(self.dir.resolve())
+            return self.dir.parent / "results"
+
+        def done(res):
+            self.info.value = f"Done. Tables and figures are in\n{res}"
+            if sys.platform == "win32":
+                os.startfile(res)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(res)])
+
+        self._run(work, done)
+
     # ---------------------------------------------------------- UI
     def _build_dock(self):
-        self.pick = ComboBox(choices=self._choices(), label="image")
-        self.pick.changed.connect(lambda v: self.open(self._choices().index(v)))
+        measure, opn, summ = PushButton(text="Measure images..."), PushButton(text="Open..."), PushButton(text="Summarise")
+        measure.changed.connect(self.measure)
+        opn.changed.connect(self.open_experiment)
+        summ.changed.connect(self.summarise)
+        self.scale = FloatSpinBox(value=0, min=0, max=1000, step=0.0001, label="um / pixel")
+        self.scale.native.setDecimals(4)
+        self.scale_grp, scale_img = PushButton(text="Set for this group"), PushButton(text="This image")
+        self.scale_grp.changed.connect(lambda: self.set_scale(True))
+        scale_img.changed.connect(lambda: self.set_scale(False))
+        self.pick = ComboBox(choices=[], label="image")
+        self.pick.changed.connect(lambda v: v and self.open(self._choices().index(v)))
         self.target_box = ComboBox(choices=list(TARGETS), value=self.target, label="editing")
         self.target_box.changed.connect(self.set_target)
         self.img_op = FloatSlider(value=1.0, min=0.1, max=1.0, step=0.05, label="image")
@@ -76,11 +187,14 @@ class Reviewer:
         self.show_rings = CheckBox(value=False, text="show rings (gap check)")
         self.show_rings.changed.connect(lambda v: setattr(self.rings, "visible", v))
         prev, nxt, save = PushButton(text="< Prev"), PushButton(text="Next >"), PushButton(text="Save + next")
-        prev.changed.connect(lambda: self.open(max(self.i - 1, 0)))
-        nxt.changed.connect(lambda: self.open(min(self.i + 1, len(self.files) - 1)))
+        prev.changed.connect(lambda: self.step(-1))
+        nxt.changed.connect(lambda: self.step(1))
         save.changed.connect(self.save_next)
         self.info = Label(value="")
-        self.dock = Container(widgets=[self.pick, self.target_box,
+        self.info.native.setMinimumHeight(70)
+        row = lambda *w: Container(widgets=list(w), layout="horizontal", labels=False)
+        self.dock = Container(widgets=[row(measure, opn), self.scale, row(self.scale_grp, scale_img), summ,
+                                       self.pick, self.target_box,
                                        Container(widgets=[prev, nxt], layout="horizontal", labels=False),
                                        save, self.img_op, self.show_rings, self.info, Label(value=HELP)])
         for w in self.dock:
@@ -104,11 +218,15 @@ class Reviewer:
             v.bind_key(str(k), lambda _, t=t: self.set_target(t), overwrite=True)
         v.bind_key("Shift-H", lambda _: self.toggle_overlays(), overwrite=True)
         v.bind_key("Shift-S", lambda _: self.save_next(), overwrite=True)
-        v.bind_key(".", lambda _: self.open(min(self.i + 1, len(self.files) - 1)), overwrite=True)
-        v.bind_key(",", lambda _: self.open(max(self.i - 1, 0)), overwrite=True)
+        v.bind_key(".", lambda _: self.step(1), overwrite=True)
+        v.bind_key(",", lambda _: self.step(-1), overwrite=True)
         v.mouse_drag_callbacks.append(self._mouse)
         v.mouse_move_callbacks.append(self._follow)
         v.cursor.style = "crosshair"
+
+    def step(self, k):
+        if self.files and self.i is not None:
+            self.open(min(max(self.i + k, 0), len(self.files) - 1))
 
     def set_target(self, t):
         self.target = t
@@ -118,6 +236,8 @@ class Reviewer:
             self.tag.text = {"string": t, "color": TARGETS[t], "size": 11, "translation": [-14, 0]}
 
     def toggle_overlays(self):
+        if self.i is None:
+            return
         over = [l for l in self.viewer.layers if l.name not in ("image", "cursor") and l is not self.rings]
         show = not any(l.visible for l in over)
         for l in over:
@@ -165,6 +285,10 @@ class Reviewer:
             self.spokes, self.path_q, self.path_cells = (np.array(a) for a in saved)
         self.set_target(self.target)
         self.recompute()
+        um = P.um_per_px(self.dir, self.rel)
+        with self.scale.changed.blocked():
+            self.scale.value = 0 if np.isnan(um) else um
+        self.scale_grp.text = f"Set for all {self.rel.split('/')[0]}" if "/" in self.rel else "Set for all"
         with self.pick.changed.blocked():
             self.pick.choices = self._choices()
             self.pick.value = self._choices()[i]
@@ -177,6 +301,8 @@ class Reviewer:
         self.status = "reviewed"
 
     def save_next(self):
+        if self.i is None:
+            return
         self.save()
         n = len(self.files)
         for k in range(1, n + 1):
@@ -235,11 +361,13 @@ class Reviewer:
 
     def _follow(self, viewer, event):
         """The target's name rides next to the cursor."""
+        if self.i is None:
+            return
         self.tag.data = np.array([event.position[-2:]])
         self.tag.text = {"string": self.target, "color": TARGETS[self.target], "size": 11, "translation": [-14, 0]}
 
     def _mouse(self, viewer, event):
-        if event.button != 1:
+        if event.button != 1 or self.i is None:
             return
         mods = set(event.modifiers)
         remove = "Control" in mods          # Qt maps the Mac Cmd key to Control
@@ -371,7 +499,5 @@ class Reviewer:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        sys.exit(__doc__)
-    Reviewer(Path(sys.argv[1]))
+    Reviewer(Path(sys.argv[1]) if len(sys.argv) > 1 else None)
     napari.run()

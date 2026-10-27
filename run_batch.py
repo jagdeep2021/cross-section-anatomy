@@ -42,27 +42,23 @@ def load_settings(out_dir: Path, image_dir: Path | None = None, **override) -> d
     return s
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("image_dir", type=Path)
-    ap.add_argument("out_dir", type=Path, nargs="?")
-    ap.add_argument("--diameter", type=float)
-    ap.add_argument("--redo", action="store_true", help="re-propose images that are still 'auto' (never overwrites reviewed ones)")
-    a = ap.parse_args()
-    image_dir = a.image_dir.resolve()
-    out = (a.out_dir or image_dir.parent / "anatomy").resolve()
-    s = load_settings(out, image_dir, diameter=a.diameter)
+def batch(image_dir, out_dir=None, diameter=None, redo=False):
+    """Outline every image; yields (i, n, line) per image so a caller can show progress.
+    Writes samples.xlsx at the end. Returns (StopIteration value) the anatomy folder."""
+    image_dir = Path(image_dir).resolve()
+    out = Path(out_dir or image_dir.parent / "anatomy").resolve()
+    s = load_settings(out, image_dir, diameter=diameter)
     (out / "masks").mkdir(exist_ok=True)
     (out / "qc").mkdir(exist_ok=True)
-
     imgs = list_images(image_dir)
-    print(f"{len(imgs)} images -> {out}")
+    if not imgs:
+        raise FileNotFoundError(f"No images ({', '.join(P.IMAGE_EXT)}) in {image_dir}")
     for i, rel in enumerate(imgs, 1):
         key = image_key(rel)
         npz = out / "masks" / f"{key}.npz"
-        if npz.exists():
-            if not a.redo or P.load_state(npz)[3] == "reviewed":
-                continue
+        if npz.exists() and (not redo or P.load_state(npz)[3] == "reviewed"):
+            yield i, len(imgs), f"{rel.as_posix()}  (done before)"
+            continue
         t = time.time()
         gray, cells, region, mx = P.propose(image_dir / rel, s.get("diameter"))
         props, _, tr = P.derive(cells, region, mx, s.get("quadrant_angle_deg", 0))
@@ -70,9 +66,21 @@ def main():
         P.save_state(npz, cells, region, mx, status="auto", image_file=rel.as_posix(),
                      spokes=spokes, path_q=pq, path_cells=pc)
         P.qc_png(gray, cells, region, mx, props, tr, out / "qc" / f"{key}.png", str(rel))
-        print(f"[{i}/{len(imgs)}] {rel.as_posix()}  files={'/'.join(str(int((pq == q).sum())) for q in (1, 2, 3, 4))} mx={tr['mx_n']}  {time.time() - t:.0f}s", flush=True)
-
+        yield i, len(imgs), (f"{rel.as_posix()}  files={'/'.join(str(int((pq == q).sum())) for q in (1, 2, 3, 4))} "
+                             f"mx={tr['mx_n']}  {time.time() - t:.0f}s")
     S.write_samples(out)
+    return out
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("image_dir", type=Path)
+    ap.add_argument("out_dir", type=Path, nargs="?")
+    ap.add_argument("--diameter", type=float)
+    ap.add_argument("--redo", action="store_true", help="re-propose images that are still 'auto' (never overwrites reviewed ones)")
+    a = ap.parse_args()
+    for i, n, line in batch(a.image_dir, a.out_dir, a.diameter, a.redo):
+        print(f"[{i}/{n}] {line}", flush=True)
 
 
 if __name__ == "__main__":

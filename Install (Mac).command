@@ -12,4 +12,4 @@ echo "Installing Python and the packages..."
 .uv/uv venv --python 3.14 --allow-existing .venv
 .uv/uv pip install --python .venv/bin/python -r requirements.txt
 chmod +x *.command
-.venv/bin/python -c "import napari, cellpose, pipeline, review; print('\nAll set. Double-click \"Review (Mac).command\" to start.')"
+.venv/bin/python -c "import napari, cellpose, pipeline, review; print('\nAll set. Double-click \"Open app (Mac).command\" to start.')"
