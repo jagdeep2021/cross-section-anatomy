@@ -448,7 +448,7 @@ class Reviewer:
             j = (self.i + k) % n
             if P.load_state(self.files[j])[3] != "reviewed":
                 return self.open(j)
-        self.info.value = "All images reviewed. Run summarise.py"
+        self.info.value = "All images checked. Click Make results."
 
     # ---------------------------------------------------------- display
     def recompute(self):
