@@ -134,7 +134,6 @@ class Reviewer:
         f = self.files[i]
         z = np.load(f)
         self.rel = str(z["image_file"])
-        self.bar = int(z["scale_bar_px"]) if "scale_bar_px" in z else 0
         self.gray = P.load_gray(self.image_dir / self.rel)
         cells, region, mx, self.status = P.load_state(f)
         v = self.viewer
@@ -172,7 +171,7 @@ class Reviewer:
 
     def save(self):
         P.save_state(self.files[self.i], self.cells.data.astype(np.uint16), self.region.data.astype(np.uint8),
-                     self.mx.data.astype(np.uint16), status="reviewed", image_file=self.rel, scale_bar_px=self.bar,
+                     self.mx.data.astype(np.uint16), status="reviewed", image_file=self.rel,
                      spokes=self.spokes, path_q=np.asarray(self.path_q, np.int16),
                      path_cells=np.asarray(self.path_cells, np.int32))
         self.status = "reviewed"
@@ -216,7 +215,7 @@ class Reviewer:
 
     def draw_profile(self, ft):
         """Live cortex pattern: per quarter, along the spoke and all cortical cells (same as the result figures)."""
-        s = P.um_per_px(self.dir, self.rel, self.bar, self.settings)   # samples.xlsx override, else the bar
+        s = P.um_per_px(self.dir, self.rel)   # samples.xlsx, given by the user
         um = not np.isnan(s)
         s = s if um else 1
         for ax in self.prof_axes:

@@ -29,11 +29,18 @@ IMAGE_EXT = (".png", ".tif", ".tiff", ".jpg", ".jpeg")
 
 # ---------------------------------------------------------------- loading
 
-def load_gray(path) -> np.ndarray:
+def read_plane(path) -> np.ndarray:
+    """One 2-D grey plane from any image: colour -> brightest channel; a multi-page TIFF (stack) -> page 1."""
     im = io.imread(path)
+    if im.ndim == 4 or (im.ndim == 3 and im.shape[-1] not in (3, 4)):
+        im = im[0]                                  # stack (pages first): first page
     if im.ndim == 3:
         im = im[..., :3].max(axis=2)
-    im = im.astype(float)
+    return im
+
+
+def load_gray(path) -> np.ndarray:
+    im = read_plane(path).astype(float)
     lo, hi = np.percentile(im, (1, 99.8))
     im = np.clip((im - lo) / max(hi - lo, 1e-9), 0, 1)
     return exposure.equalize_adapthist(im, clip_limit=0.02)
@@ -478,15 +485,15 @@ def qc_png(gray, cells, region, mx, props, traits, out_png, title=""):
     plt.close(fig)
 
 
-def um_per_px(anatomy_dir, rel: str, bar_px: int, settings: dict) -> float:
-    """Scale for one image: um_per_px in samples.xlsx wins; else scale_bar_um / detected bar; else NaN."""
+def um_per_px(anatomy_dir, rel: str) -> float:
+    """Scale for one image, always from the user: um_per_px in samples.xlsx; NaN if not filled yet."""
     import pandas as pd
     f = Path(anatomy_dir) / "samples.xlsx"
     if f.exists():
         s = pd.read_excel(f, dtype={"image_file": str}).set_index("image_file")
         if rel in s.index and pd.notna(s.at[rel, "um_per_px"]):
             return float(s.at[rel, "um_per_px"])
-    return settings.get("scale_bar_um", 0) / bar_px if bar_px and settings.get("scale_bar_um") else np.nan
+    return np.nan
 
 
 def image_dir(anatomy_dir, settings: dict) -> Path:

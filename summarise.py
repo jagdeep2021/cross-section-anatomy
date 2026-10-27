@@ -2,12 +2,13 @@
 
   python summarise.py <anatomy_dir>
 
-First run writes <anatomy_dir>/samples.xlsx (one row per image) for you to check:
+Uses <anatomy_dir>/samples.xlsx (one row per image; made by run_batch.py, or here if missing). Fill it in:
   plant      the replicate; images of the same plant are averaged
   group_*    columns from the folder names; rename the headers (species, genotype ...)
              or add columns (treatment ...). Every column except image_file, plant,
              um_per_px and include is treated as a grouping column.
-  um_per_px  leave empty to use the scale bar; fill to override (e.g. images with no bar)
+  um_per_px  microns per pixel, from the microscope/camera: always given by the user (scale bars are not read).
+             Fill it any time after measuring: the scale is used only here, never for outlining.
   include    "no" drops the image
 Writes <anatomy_dir>/../results/anatomy_summary_YYYY-MM-DD.xlsx
 """
@@ -34,20 +35,27 @@ def make_samples(files: list[Path]) -> pd.DataFrame:
     for f in files:
         rel = Path(str(np.load(f)["image_file"]))
         parts = list(rel.parent.parts)
-        plant = parts[-1] if len(parts) >= 3 else rel.stem
+        plant = (parts[-1] if len(parts) >= 3 else rel.stem).lower()   # "P1" and "p1" are one plant
         groups = parts[:-1] if len(parts) >= 3 else parts
         rows.append({"image_file": str(rel), "plant": plant, "um_per_px": None, "include": "yes",
                      **{f"group_{k + 1}": g for k, g in enumerate(groups)}})
     return pd.DataFrame(rows)
 
 
+def write_samples(anatomy_dir: Path) -> Path:
+    """samples.xlsx for the user to fill (never overwritten once it exists)."""
+    sfile = anatomy_dir / "samples.xlsx"
+    if not sfile.exists():
+        make_samples(sorted((anatomy_dir / "masks").glob("*.npz"))).to_excel(sfile, index=False)
+        print(f"\nWrote {sfile}\nFill in um_per_px (microns per pixel) for every image, rename group_1, group_2 ... "
+              "(e.g. species, genotype), check plant, then run Summarise.")
+    return sfile
+
+
 def main(anatomy_dir: Path):
     settings = json.loads((anatomy_dir / "settings.json").read_text())
     files = sorted((anatomy_dir / "masks").glob("*.npz"))
-    sfile = anatomy_dir / "samples.xlsx"
-    if not sfile.exists():
-        make_samples(files).to_excel(sfile, index=False)
-        print(f"Wrote {sfile}: check plant / group columns, then run again.")
+    sfile = write_samples(anatomy_dir)
     samples = pd.read_excel(sfile, dtype={"image_file": str, "plant": str})
     samples["include"] = samples["include"].fillna("yes").astype(str).str.lower()
     groups = [c for c in samples.columns if c not in FIXED]
@@ -67,8 +75,8 @@ def main(anatomy_dir: Path):
         props, mxp, tr = P.derive(cells, region, mx, angle)
         paths = P.load_paths(f) or P.auto_paths(cells, region, props, angle)
         ft = P.file_table(cells, region, props, paths[1], paths[2])
-        bar = int(z["scale_bar_px"]) if "scale_bar_px" in z else 0
-        s = P.um_per_px(anatomy_dir, rel, bar, settings)
+        s = samples.at[rel, "um_per_px"]
+        s = float(s) if pd.notna(s) else np.nan
         meta = {"image_file": rel, "plant": samples.at[rel, "plant"], **{g: samples.at[rel, g] for g in groups}}
 
         nq = ft.groupby("quadrant").file.max().reindex([1, 2, 3, 4]) if len(ft) else pd.Series([np.nan] * 4, index=[1, 2, 3, 4])
@@ -242,6 +250,11 @@ def main(anatomy_dir: Path):
                             "area_um2" if um else "area_px", "Cortical cell area (µm²)" if um else "Cortical cell area (px)",
                             out_dir / "figures" / f"cortex_pattern_{spv}_{today}.png",
                             f"  {drop} image(s) without a scale left out." if drop else "")
+    no_scale = per_image.loc[per_image.um_per_px.isna(), "image_file"].tolist()
+    if no_scale:
+        print(f"\nWARNING: {len(no_scale)} image(s) have no scale (um_per_px empty); their sizes "
+              f"stay in pixels and they are left out of the um figures. Type um_per_px in {sfile.name} and run again:")
+        print("  " + "\n  ".join(no_scale[:10]) + ("\n  ..." if len(no_scale) > 10 else ""))
     out = out_dir
     print(f"{len(per_image)} images ({(per_image.status == 'reviewed').sum()} reviewed), "
           f"{per_plant.shape[0]} plants -> {out}")

@@ -13,7 +13,7 @@ cross_section_anatomy/
 ├── summarise.py    masks -> results/{cell_size_by_file, all_cells, anatomy_summary}_YYYY-MM-DD.xlsx
 │                   + results/figures/ (cortex pattern per species, per image)
 ├── pattern_plots.py  splines, profile features, the figures (also the live plot in review.py)
-├── Install / Review / Summarise (Mac).command, (Windows).bat   double-click launchers
+├── Install / Measure / Review / Summarise (Mac).command, (Windows).bat   double-click launchers
 └── requirements.txt
 ```
 
@@ -21,7 +21,7 @@ cross_section_anatomy/
 
 ```bash
 cd ~/lab-code/09_phenotyping_pipelines/scripts/cross_section_anatomy
-.venv/bin/python run_batch.py "<experiment>/images_png"        # -> <experiment>/anatomy/
+.venv/bin/python run_batch.py "<experiment>/raw"               # -> <experiment>/anatomy/ (+ samples.xlsx to fill)
 .venv/bin/python review.py    "<experiment>/anatomy"
 .venv/bin/python summarise.py "<experiment>/anatomy"           # -> <experiment>/results/
 ```
@@ -70,10 +70,11 @@ Everything else is derived by `derive()`, so the editor and the summary always a
   object takes any overlap and a neighbour left with < 25% of its area is removed (no slivers,
   nothing counted twice). Metaxylem differs: a drawn vessel merges with any vessel it touches (vessels
   never touch, so overlap = same vessel; one count, union area), and clears cell pixels under it.
-- **Scale**: `settings.json:scale_bar_um` ÷ detected bar length (bottom-left bright run that is a thin line
-  on a dark background; runs inside tissue are rejected). `um_per_px` in samples.xlsx overrides it
-  (`pipeline.um_per_px`, used by the app and the summary). Ortiz images (Jagdeep 2026-10-27): all maize
-  one scale, 0.7194 um/px (100 um = 139 px); Setaria 0.3584 um/px; both set in samples.xlsx.
+- **Scale** is always given by the user: `um_per_px` per image in `anatomy/samples.xlsx` (written by
+  run_batch.py at the end of the auto pass). Scale bars are not read (detection misread tissue as bars and
+  many images have none). Used only by the summary/app for µm values; images left blank stay in px and are
+  listed in a warning. Ortiz images: maize 0.7194, Setaria 0.3584 um/px (Jagdeep 2026-10-27).
+- **Multi-page TIFF** (stack): page 1 is used (`pipeline.read_plane`; the earlier PNG copies matched page 1).
 - **Cortex pattern** (plan: `5_Projects/04_root_anatomy/01_Cortex patterning/6_cortical_radial_profile_analysis/`):
   two views on a 0-1 axis, stele → epidermis. *Along the spoke*: path cells, relative file position
   (file - 0.5) / files in the quarter. *All cortical cells*: r_norm of each cell's centroid, 10 bins; uses
