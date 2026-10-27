@@ -72,8 +72,9 @@ def main(anatomy_dir: Path):
         if rel not in samples.index or samples.at[rel, "include"] == "no":
             continue
         cells, region, mx, status = P.load_state(f)
-        props, mxp, tr = P.derive(cells, region, mx, angle)
-        paths = P.load_paths(f) or P.auto_paths(cells, region, props, angle)
+        centre = P.centre_of(region, P.load_centre(f))
+        props, mxp, tr = P.derive(cells, region, mx, angle, centre)
+        paths = P.load_paths(f) or P.auto_paths(cells, region, props, angle, centre)
         ft = P.file_table(cells, region, props, paths[1], paths[2])
         s = samples.at[rel, "um_per_px"]
         s = float(s) if pd.notna(s) else np.nan
@@ -98,7 +99,7 @@ def main(anatomy_dir: Path):
             file_rows.append(ft.assign(**meta, tech_rep=tech, status=status))
             um = not np.isnan(s)
             PP.image_figure(P.load_gray(P.image_dir(anatomy_dir, settings) / rel), cells, region, ft,
-                            props.assign(area_um2=props.area_px * s * s), P.centre_of(region), angle, "area_um2" if um else "area_px", "Cell area (µm²)" if um else "Cell area (px)",
+                            props.assign(area_um2=props.area_px * s * s), centre, angle, "area_um2" if um else "area_px", "Cell area (µm²)" if um else "Cell area (px)",
                             f"{rel}  ·  {status}", fig_dir / (Path(rel).with_suffix("").as_posix().replace("/", "__") + ".png"))
 
         mxt = pd.DataFrame(measure.regionprops_table(mx, properties=("label", "area", "centroid", "axis_major_length",
@@ -106,8 +107,8 @@ def main(anatomy_dir: Path):
         if len(mxt):
             mxt = mxt.rename(columns={"centroid-0": "y", "centroid-1": "x", "area": "area_px",
                                       "axis_major_length": "major_px", "axis_minor_length": "minor_px"})
-            mxt = mxt.join(P.radial_position(mxt, region, P.centre_of(region)))
-            mxt["tissue"], mxt["quadrant"] = "metaxylem", P.quadrant_of(mxt.y, mxt.x, P.centre_of(region), angle)
+            mxt = mxt.join(P.radial_position(mxt, region, centre))
+            mxt["tissue"], mxt["quadrant"] = "metaxylem", P.quadrant_of(mxt.y, mxt.x, centre, angle)
         allc = pd.concat([props, mxt], ignore_index=True)
         allc["file"] = allc.label.where(allc.tissue != "metaxylem").map(dict(zip(ft.label, ft.file))) if len(ft) else np.nan
         allc["ring"] = allc.layer if "layer" in allc else np.nan
@@ -119,7 +120,7 @@ def main(anatomy_dir: Path):
              "angle_rad", "angle_deg", "r_px", "r_um", "r_norm", "dist_from_stele_um",
              "area_px", "area_um2", "major_um", "minor_um"]])
 
-        qt = P.quadrant_traits(cells, region, mx, props, angle)
+        qt = P.quadrant_traits(cells, region, mx, props, angle, centre)
         qt = qt.drop(columns=[c for c in qt.columns if c.startswith("n_layers")])
         qt.insert(1, "n_files", qt.quadrant.map(nq).values)
         for col in [c for c in qt.columns if c.endswith("area_px")]:

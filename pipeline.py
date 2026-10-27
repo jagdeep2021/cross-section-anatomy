@@ -208,8 +208,10 @@ def air_spaces(props: pd.DataFrame, adj: dict) -> set:
     return out
 
 
-def centre_of(region: np.ndarray) -> tuple[float, float]:
-    """Stele centroid (root centroid if no stele): the origin for quadrants."""
+def centre_of(region: np.ndarray, centre=None) -> tuple[float, float]:
+    """The origin for quadrants: the user's centre if set, else the stele centroid (root centroid if no stele)."""
+    if centre is not None:
+        return float(centre[0]), float(centre[1])
     m = region == 2 if (region == 2).any() else region >= 1
     return ndi.center_of_mass(m) if m.any() else (region.shape[0] / 2, region.shape[1] / 2)
 
@@ -225,7 +227,7 @@ def quadrant_map(shape, centre, angle_deg: float = 0) -> np.ndarray:
     return quadrant_of(yy, xx, centre, angle_deg)
 
 
-def derive(cells: np.ndarray, region: np.ndarray, mx: np.ndarray, angle_deg: float = 0):
+def derive(cells: np.ndarray, region: np.ndarray, mx: np.ndarray, angle_deg: float = 0, centre=None):
     """Per-cell table (tissue, cortical layer, quadrant) and per-image traits, in pixels."""
     root = region >= 1
     stele = region == 2
@@ -260,20 +262,20 @@ def derive(cells: np.ndarray, region: np.ndarray, mx: np.ndarray, angle_deg: flo
                                    np.where(props.label.isin(edge), "epidermis",
                                             np.where(props.label.isin(layer.keys()), "cortex", "unassigned"))))
         props["layer"] = props.label.map(layer)
-        props["quadrant"] = quadrant_of(props.y, props.x, centre_of(region), angle_deg)
-        props = props.join(radial_position(props, region, centre_of(region)))
+        props["quadrant"] = quadrant_of(props.y, props.x, centre_of(region, centre), angle_deg)
+        props = props.join(radial_position(props, region, centre_of(region, centre)))
     mxp = pd.DataFrame(measure.regionprops_table(mx, properties=("label", "area"))) if mx.any() else pd.DataFrame(columns=["label", "area"])
     traits = {
         "root_area_px": int(root.sum()),
         "stele_area_px": int(stele.sum()),
         "cortex_area_px": int(root.sum() - stele.sum()),
-        "n_cortical_layers": float(np.median([np.median([ray_layers(cells, region, props, centre_of(region), t) for t in ts])
+        "n_cortical_layers": float(np.median([np.median([ray_layers(cells, region, props, centre_of(region, centre), t) for t in ts])
                                               for ts in quadrant_rays(angle_deg).values()])) if len(props) else 0,
         "n_layers_ring": int(props.layer.max()) if props.layer.notna().any() else 0,
         "n_cortex_cells": int((props.tissue == "cortex").sum()),
         "n_air_spaces": int((props.tissue == "air_space").sum()),
         "air_space_total_area_px": int(props.area_px[props.tissue == "air_space"].sum()),
-        "cortex_width_px": float(np.mean(np.subtract(*radial_profile(region, centre_of(region))[::-1]))),
+        "cortex_width_px": float(np.mean(np.subtract(*radial_profile(region, centre_of(region, centre))[::-1]))),
         "mx_n": int(len(mxp)),
         "mx_mean_area_px": float(mxp.area.mean()) if len(mxp) else np.nan,
         "mx_total_area_px": int(mxp.area.sum()) if len(mxp) else 0,
@@ -346,10 +348,10 @@ def _ray(shape, centre, theta_deg, r0=0.0, r1=None, step=0.5):
     return y[ok], x[ok]
 
 
-def path_along(cells, region, props, theta_deg, min_frac=0.3) -> list[int]:
+def path_along(cells, region, props, theta_deg, min_frac=0.3, centre=None) -> list[int]:
     """Cells a spoke really crosses (>= min_frac of the cell's minor axis), stele -> edge."""
     ok = props[props.tissue.isin(PATH_TISSUES)].set_index("label")
-    y, x = _ray(cells.shape, centre_of(region), theta_deg)
+    y, x = _ray(cells.shape, centre_of(region, centre), theta_deg)
     run: dict[int, float] = {}
     for v in cells[y, x]:
         if v in ok.index:
@@ -357,9 +359,9 @@ def path_along(cells, region, props, theta_deg, min_frac=0.3) -> list[int]:
     return [v for v, L in run.items() if L >= min_frac * ok.at[v, "minor_px"]]
 
 
-def spoke_completeness(cells, region, props, theta_deg) -> float:
+def spoke_completeness(cells, region, props, theta_deg, centre=None) -> float:
     """Share of the spoke between stele edge and root edge that lies in cortical cells."""
-    centre = centre_of(region)
+    centre = centre_of(region, centre)
     r_st, r_rt = radial_profile(region, centre)
     d = int(np.mod(round(theta_deg), 360))
     if r_rt[d] - r_st[d] < 10:
@@ -369,18 +371,18 @@ def spoke_completeness(cells, region, props, theta_deg) -> float:
     return float(np.isin(cells[y, x], list(good)).mean()) if len(y) else 0.0
 
 
-def best_spoke(cells, region, props, quadrant, angle_deg=0, margin=12, step=2) -> float:
+def best_spoke(cells, region, props, quadrant, angle_deg=0, margin=12, step=2, centre=None) -> float:
     lo = angle_deg + 90 * (quadrant - 1) + margin
     cand = np.arange(lo, lo + 90 - 2 * margin + 1, step)
-    score = [spoke_completeness(cells, region, props, t) - 0.001 * abs(t - (lo - margin + 45)) for t in cand]
+    score = [spoke_completeness(cells, region, props, t, centre) - 0.001 * abs(t - (lo - margin + 45)) for t in cand]
     return float(cand[int(np.argmax(score))])
 
 
-def auto_paths(cells, region, props, angle_deg=0):
-    spokes = np.array([best_spoke(cells, region, props, q, angle_deg) for q in (1, 2, 3, 4)])
+def auto_paths(cells, region, props, angle_deg=0, centre=None):
+    spokes = np.array([best_spoke(cells, region, props, q, angle_deg, centre=centre) for q in (1, 2, 3, 4)])
     pq, pc = [], []
     for q, t in zip((1, 2, 3, 4), spokes):
-        for lbl in path_along(cells, region, props, t):
+        for lbl in path_along(cells, region, props, t, centre=centre):
             pq.append(q)
             pc.append(lbl)
     return spokes, np.array(pq, np.int16), np.array(pc, np.int32)
@@ -408,9 +410,9 @@ def file_table(cells, region, props, path_q, path_cells) -> pd.DataFrame:
     return t[["quadrant", "file", "label", "area_px", "major_px", "minor_px", "r_norm", "dist_from_stele_px"]]
 
 
-def quadrant_traits(cells, region, mx, props, angle_deg: float = 0) -> pd.DataFrame:
+def quadrant_traits(cells, region, mx, props, angle_deg: float = 0, centre=None) -> pd.DataFrame:
     """One row per quadrant: areas, layers, cortex cells, air spaces, metaxylem (pixels)."""
-    centre = centre_of(region)
+    centre = centre_of(region, centre)
     q = quadrant_map(region.shape, centre, angle_deg)
     mxp = pd.DataFrame(measure.regionprops_table(mx, properties=("label", "area", "centroid"))) if mx.any() else None
     rows = []
@@ -446,6 +448,12 @@ def layer_image(cells: np.ndarray, props: pd.DataFrame) -> np.ndarray:
 
 def save_state(npz_path, cells, region, mx, status="auto", **meta):
     np.savez_compressed(npz_path, cells=cells, region=region, mx=mx, status=np.array(status), **{k: np.array(v) for k, v in meta.items()})
+
+
+def load_centre(npz_path):
+    """The quadrant centre the user set (y, x), or None: then the stele centroid is used."""
+    z = np.load(npz_path, allow_pickle=False)
+    return tuple(z["centre"]) if "centre" in z else None
 
 
 def load_state(npz_path):

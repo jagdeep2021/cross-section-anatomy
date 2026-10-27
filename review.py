@@ -53,14 +53,14 @@ import pipeline as P
 import run_batch as RB
 import summarise as SUM
 
-TARGETS = {"Cell": "yellow", "Metaxylem": "red", "Stele": "cyan", "File path": "orange"}
+TARGETS = {"Cell": "yellow", "Metaxylem": "red", "Stele": "cyan", "File path": "orange", "Centre": "white"}
 # the layers each editing target owns: the opacity slider acts on these only
 TARGET_LAYERS = {"Cell": ("cells", "air"), "Metaxylem": ("mx",), "Stele": ("region",),
-                 "File path": ("path", "nums", "quads")}
+                 "File path": ("path", "nums"), "Centre": ("quads",)}
 CMD = "⌘" if sys.platform == "darwin" else "Ctrl"   # napari's "Control" is Cmd on a Mac
 _KEYS = [("Click", "add"), (f"{CMD}-click", "remove (stele: the whole stele)"), ("Shift-drag", "draw outline, add"),
          (f"{CMD}-Shift-drag", "draw outline, remove"), ("Drag / scroll", "move / zoom"),
-         ("Alt-click", "move spoke (file path)"), ("1 2 3 4", "cell, metaxylem, stele, file path"),
+         ("Alt-click", "move spoke (file path)"), ("1 2 3 4 5", "cell, metaxylem, stele, file path, centre"),
          ("Shift-H", "hide / show outlines"), ("Shift-S", "save + next"), (", .", "previous / next image")]
 HELP = ("<table cellspacing='0' cellpadding='2' style='font-size:12px'>" +
         "".join(f"<tr><td style='color:#ffd479; padding-right:10px'><b>{k}</b></td><td>{v}</td></tr>"
@@ -427,10 +427,11 @@ class Reviewer:
         self._base = {lyr: lyr.opacity for lyr in v.layers[1:]}   # each layer's full strength
         self._apply_overlays()
         v.layers.selection.active = self.cells
-        props, _, _ = P.derive(cells, region, mx, self.angle)
+        self.centre = P.load_centre(f)          # None = the stele centroid
+        props, _, _ = P.derive(cells, region, mx, self.angle, self._centre())
         saved = P.load_paths(f)
         if saved is None:
-            self.spokes, self.path_q, self.path_cells = P.auto_paths(cells, region, props, self.angle)
+            self.spokes, self.path_q, self.path_cells = P.auto_paths(cells, region, props, self.angle, self._centre())
         else:
             self.spokes, self.path_q, self.path_cells = (np.array(a) for a in saved)
         self.set_target(self.target)
@@ -447,8 +448,12 @@ class Reviewer:
         P.save_state(self.files[self.i], self.cells.data.astype(np.uint16), self.region.data.astype(np.uint8),
                      self.mx.data.astype(np.uint16), status="reviewed", image_file=self.rel,
                      spokes=self.spokes, path_q=np.asarray(self.path_q, np.int16),
-                     path_cells=np.asarray(self.path_cells, np.int32))
+                     path_cells=np.asarray(self.path_cells, np.int32),
+                     **({} if self.centre is None else {"centre": np.asarray(self.centre, float)}))
         self.status = "reviewed"
+
+    def _centre(self):
+        return P.centre_of(self.region.data, self.centre)
 
     def save_next(self):
         if self.i is None:
@@ -464,7 +469,7 @@ class Reviewer:
     # ---------------------------------------------------------- display
     def recompute(self):
         cells, region = self.cells.data, self.region.data
-        props, _, tr = P.derive(cells, region, self.mx.data, self.angle)
+        props, _, tr = P.derive(cells, region, self.mx.data, self.angle, self._centre())
         self.props = props
         self.air.data = np.isin(cells, props.label[props.tissue == "air_space"].values).astype(np.uint8)
         ft = P.file_table(cells, region, props, self.path_q, self.path_cells)
@@ -476,7 +481,7 @@ class Reviewer:
             self.nums.text = {"string": "{file}", "color": "white", "size": 9}
         else:
             self.nums.data = np.empty((0, 2))
-        cy, cx = P.centre_of(region)
+        cy, cx = self._centre()
         L = 0.5 * max(self.gray.shape)
         line = lambda t: np.array([[cy, cx], [cy - L * np.sin(np.radians(t)), cx + L * np.cos(np.radians(t))]])
         self.quads.data = []
@@ -555,7 +560,7 @@ class Reviewer:
     # ---------------------------------------------------------- edits (same rules for every target)
     def _quadrant(self, mask):
         cy, cx = np.argwhere(mask).mean(0)
-        return int(P.quadrant_of(cy, cx, P.centre_of(self.region.data), self.angle))
+        return int(P.quadrant_of(cy, cx, self._centre(), self.angle))
 
     def _path_add(self, labels):
         for l in labels:
@@ -603,6 +608,14 @@ class Reviewer:
                 region[m] = 2
         elif t == "File path" and lbl:
             self._path_remove([lbl]) if remove or lbl in self.path_cells else self._path_add([lbl])
+        elif t == "Centre":                         # click = put the centre here, Cmd/Ctrl-click = back to automatic
+            self.centre = None if remove else (float(y), float(x))
+            props, _, _ = P.derive(cells, region, mx, self.angle, self._centre())
+            self.spokes, self.path_q, self.path_cells = P.auto_paths(cells, region, props, self.angle, self._centre())
+            self._refresh()
+            self.info.value += ("\nCentre back to the stele centre." if remove else "\nCentre moved.") + \
+                " Quarters and file paths re-picked."
+            return
         self._refresh()
 
     def outline_edit(self, pts, remove):
@@ -637,12 +650,12 @@ class Reviewer:
         self._refresh()
 
     def move_spoke(self, y, x):
-        centre = P.centre_of(self.region.data)
+        centre = self._centre()
         q = int(P.quadrant_of(y, x, centre, self.angle))
         t = float(np.degrees(np.arctan2(-(y - centre[0]), x - centre[1])))
         self.spokes[q - 1] = t
         keep = self.path_q != q
-        new = P.path_along(self.cells.data, self.region.data, self.props, t)
+        new = P.path_along(self.cells.data, self.region.data, self.props, t, centre=centre)
         self.path_q = np.r_[self.path_q[keep], np.full(len(new), q)].astype(np.int16)
         self.path_cells = np.r_[self.path_cells[keep], new].astype(np.int32)
         self.recompute()
