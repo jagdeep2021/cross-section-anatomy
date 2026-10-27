@@ -6,7 +6,7 @@ Buttons:  Open folder...     the experiment folder, its raw/ (images) or anatomy
                              are outlined first (anatomy/ next to the images; progress in the panel;
                              stop/resume any time), then they open.
           um / pixel         the scale: always typed by you (scale bars are not read)
-          Summarise          tables + figures -> results/ next to anatomy/
+          Make results       tables + figures -> results/ next to anatomy/
 
 Pick what you are editing (keys 1-4; its name follows the cursor):
   1 Cell   2 Metaxylem   3 Stele   4 File path
@@ -169,7 +169,7 @@ class Reviewer:
         def done(out):
             self.viewer.title = "Root cross-section anatomy"
             self._add_new(out)
-            self.info.value = f"All {len(self.files)} images measured. Now type the um / pixel scale, then Summarise."
+            self.info.value = f"All {len(self.files)} images measured. Now type the um / pixel scale, then Make results."
 
         self._run(work, done, progress)
 
@@ -235,7 +235,7 @@ class Reviewer:
 
     # ---------------------------------------------------------- UI
     def _build_dock(self):
-        opn, summ = PushButton(text="Open folder..."), PushButton(text="Summarise")
+        opn, summ = PushButton(text="Open folder..."), PushButton(text="Make results")
         opn.changed.connect(self.open_folder)
         summ.changed.connect(self.summarise)
         self.scale = FloatSpinBox(value=0, min=0, max=1000, step=0.0001, label="um / pixel")
@@ -247,7 +247,7 @@ class Reviewer:
         self.pick.changed.connect(lambda v: v and self.open(self._choices().index(v)))
         self.target_box = ComboBox(choices=list(TARGETS), value=self.target, label="editing")
         self.target_box.changed.connect(self.set_target)
-        self.img_op = FloatSlider(value=1.0, min=0.1, max=1.0, step=0.05, label="image")
+        self.img_op = FloatSlider(value=1.0, min=0.1, max=1.0, step=0.05, label="opacity")
         self.img_op.changed.connect(lambda v: "image" in self.viewer.layers and
                                     setattr(self.viewer.layers["image"], "opacity", v))
         self.show = {k: CheckBox(value=k != "rings", text=k) for k in VIEWS}
@@ -266,12 +266,16 @@ class Reviewer:
         save.changed.connect(self.save_next)
         self.info = Label(value="")
         self.info.native.setMinimumHeight(70)
-        row = lambda *w: Container(widgets=list(w), layout="horizontal", labels=False)
-        self.dock = Container(widgets=[opn, self.scale, row(self.scale_grp, scale_img), summ,
-                                       self.pick, self.target_box,
-                                       Container(widgets=[prev, nxt], layout="horizontal", labels=False),
-                                       save, self.img_op, self.info])
+        def row(*w):                             # buttons side by side, flush with the full-width ones
+            c = Container(widgets=list(w), layout="horizontal", labels=False)
+            c.native.layout().setContentsMargins(0, 0, 0, 0)
+            return c
+        # top to bottom in the order of the work: the run, its scale, the image, editing it
+        self.dock = Container(widgets=[row(opn, summ), self.scale, row(self.scale_grp, scale_img),
+                                       self.pick, row(prev, nxt, save),
+                                       self.target_box, self.img_op, self.info])
         self.info.native.setWordWrap(True)
+        self.info.native.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         help_lbl = QLabel(HELP)
         help_lbl.setTextFormat(Qt.TextFormat.RichText)
         self.dock.native.setMinimumWidth(240)   # no maximum: drag the panel edge to make it wider or narrower
@@ -289,6 +293,7 @@ class Reviewer:
         qv = self.viewer.window._qt_viewer   # napari's own layer panels are not needed
         for d in (qv.dockLayerList, qv.dockLayerControls):
             d.setVisible(False)
+        self.viewer.window._qt_window.statusBar().hide()   # napari's own key hints (1 = eraser ...) contradict ours
 
         v = self.viewer
         for k, t in enumerate(TARGETS, 1):
