@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import os
 import numpy as np
 import pandas as pd
 from scipy import ndimage as ndi
@@ -447,7 +448,13 @@ def layer_image(cells: np.ndarray, props: pd.DataFrame) -> np.ndarray:
 # ---------------------------------------------------------------- storage
 
 def save_state(npz_path, cells, region, mx, status="auto", **meta):
-    np.savez_compressed(npz_path, cells=cells, region=region, mx=mx, status=np.array(status), **{k: np.array(v) for k, v in meta.items()})
+    """Write to a temporary file, then rename: a crash mid-write never leaves a half file that looks done."""
+    npz_path = Path(npz_path)
+    tmp = npz_path.with_name(npz_path.name + ".part")
+    with open(tmp, "wb") as fh:
+        np.savez_compressed(fh, cells=cells, region=region, mx=mx, status=np.array(status),
+                            **{k: np.array(v) for k, v in meta.items()})
+    os.replace(tmp, npz_path)
 
 
 def load_centre(npz_path):
