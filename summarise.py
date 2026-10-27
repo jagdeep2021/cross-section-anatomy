@@ -68,9 +68,7 @@ def main(anatomy_dir: Path):
         paths = P.load_paths(f) or P.auto_paths(cells, region, props, angle)
         ft = P.file_table(cells, region, props, paths[1], paths[2])
         bar = int(z["scale_bar_px"]) if "scale_bar_px" in z else 0
-        s = samples.at[rel, "um_per_px"]
-        if pd.isna(s):
-            s = settings.get("scale_bar_um", 0) / bar if bar else np.nan
+        s = P.um_per_px(anatomy_dir, rel, bar, settings)
         meta = {"image_file": rel, "plant": samples.at[rel, "plant"], **{g: samples.at[rel, g] for g in groups}}
 
         nq = ft.groupby("quadrant").file.max().reindex([1, 2, 3, 4]) if len(ft) else pd.Series([np.nan] * 4, index=[1, 2, 3, 4])

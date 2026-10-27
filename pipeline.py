@@ -16,6 +16,8 @@ Auto pass (propose):
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 from scipy import ndimage as ndi
@@ -474,3 +476,14 @@ def qc_png(gray, cells, region, mx, props, traits, out_png, title=""):
     fig.tight_layout()
     fig.savefig(out_png, dpi=100)
     plt.close(fig)
+
+
+def um_per_px(anatomy_dir, rel: str, bar_px: int, settings: dict) -> float:
+    """Scale for one image: um_per_px in samples.xlsx wins; else scale_bar_um / detected bar; else NaN."""
+    import pandas as pd
+    f = Path(anatomy_dir) / "samples.xlsx"
+    if f.exists():
+        s = pd.read_excel(f, dtype={"image_file": str}).set_index("image_file")
+        if rel in s.index and pd.notna(s.at[rel, "um_per_px"]):
+            return float(s.at[rel, "um_per_px"])
+    return settings.get("scale_bar_um", 0) / bar_px if bar_px and settings.get("scale_bar_um") else np.nan

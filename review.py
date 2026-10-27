@@ -215,8 +215,9 @@ class Reviewer:
 
     def draw_profile(self, ft):
         """Live cortex pattern: per quarter, along the spoke and all cortical cells (same as the result figures)."""
-        um = self.bar and self.settings.get("scale_bar_um")
-        s = self.settings["scale_bar_um"] / self.bar if um else 1
+        s = P.um_per_px(self.dir, self.rel, self.bar, self.settings)   # samples.xlsx override, else the bar
+        um = not np.isnan(s)
+        s = s if um else 1
         for ax in self.prof_axes:
             ax.clear()
         PP.quadrant_profiles(self.prof_axes, ft.assign(area=ft.area_px * s * s),
