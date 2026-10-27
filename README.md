@@ -13,7 +13,7 @@ cross_section_anatomy/
 ├── summarise.py    masks -> results/{cell_size_by_file, all_cells, anatomy_summary}_YYYY-MM-DD.xlsx
 │                   + results/figures/ (cortex pattern per species, per image)
 ├── pattern_plots.py  splines, profile features, the figures (also the live plot in review.py)
-├── Review.command  double-click launcher (Mac): pick the anatomy folder, opens review.py
+├── Install / Review / Summarise (Mac).command, (Windows).bat   double-click launchers
 └── requirements.txt
 ```
 
@@ -25,7 +25,10 @@ cd ~/lab-code/09_phenotyping_pipelines/scripts/cross_section_anatomy
 .venv/bin/python review.py    "<experiment>/anatomy"
 .venv/bin/python summarise.py "<experiment>/anatomy"           # -> <experiment>/results/
 ```
-Setup once: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt` (~2 GB, torch).
+Setup once: double-click `Install (Mac).command` or `Install (Windows).bat`. It uses uv to install
+Python 3.14 and requirements.txt into this folder (`.uv/`, `.venv/`; no admin rights; ~1 min, 2.8 GB;
+delete the folder to uninstall). Then `Review (…)` and `Summarise (…)` ask for the anatomy folder.
+On a Mac, a downloaded .command opens the first time only with right-click → Open.
 
 ## Editable state
 
