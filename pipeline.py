@@ -112,11 +112,20 @@ def propose(path, diameter: float | None = None, model_path: str | None = None):
     cells[~root] = 0
     stele = find_stele(cells, root)
     mx = find_mx(gray, cells, stele)
+    # big round "cells" inside the stele are metaxylem lumens Cellpose kept as cells
+    st = pd.DataFrame(measure.regionprops_table(cells * stele, properties=("label", "area", "solidity", "eccentricity")))
+    if len(st) > 5:
+        big = st[(st.area > 5 * st.area.median()) & (st.solidity > 0.85) & (st.eccentricity < 0.85)]
+        for lbl in big.label:
+            m = (cells == lbl) & (mx == 0)
+            if m.any():
+                mx[m] = mx.max() + 1
     if mx.any():  # a vessel is not a cell
         hit = np.unique(cells[mx > 0])
         frac = {c: (mx[cells == c] > 0).mean() for c in hit if c}
         cells[np.isin(cells, [c for c, f in frac.items() if f > 0.5])] = 0
     cells = segmentation.relabel_sequential(cells)[0].astype(np.uint16)
+    mx = measure.label(morphology.closing(mx > 0, morphology.disk(2))).astype(np.uint16)  # one id per vessel
     region = root.astype(np.uint8) + stele.astype(np.uint8)
     return gray, cells, region, mx
 
@@ -176,8 +185,39 @@ def cell_adjacency(cells: np.ndarray) -> dict:
     return adj
 
 
-def derive(cells: np.ndarray, region: np.ndarray, mx: np.ndarray):
-    """Per-cell table (tissue, cortical layer) and per-image traits, in pixels."""
+SPACE_RATIO = 0.25   # object < 25% of its neighbours' median area ...
+SPACE_MAX_NB = 5     # ... with at most 5 neighbours = air space (intercellular space at a cell junction)
+
+
+def air_spaces(props: pd.DataFrame, adj: dict) -> set:
+    area = dict(zip(props.label, props.area_px))
+    out = set()
+    for lbl, a in area.items():
+        nb = [area[n] for n in adj.get(lbl, ()) if n in area]
+        if nb and len(nb) <= SPACE_MAX_NB and a < SPACE_RATIO * np.median(nb):
+            out.add(lbl)
+    return out
+
+
+def centre_of(region: np.ndarray) -> tuple[float, float]:
+    """Stele centroid (root centroid if no stele): the origin for quadrants."""
+    m = region == 2 if (region == 2).any() else region >= 1
+    return ndi.center_of_mass(m) if m.any() else (region.shape[0] / 2, region.shape[1] / 2)
+
+
+def quadrant_of(y, x, centre, angle_deg: float = 0):
+    """Q1 top-right, Q2 top-left, Q3 bottom-left, Q4 bottom-right (image axes, rotated by angle_deg)."""
+    theta = np.degrees(np.arctan2(-(np.asarray(y) - centre[0]), np.asarray(x) - centre[1])) - angle_deg
+    return (np.floor(np.mod(theta, 360) / 90) + 1).astype(int)
+
+
+def quadrant_map(shape, centre, angle_deg: float = 0) -> np.ndarray:
+    yy, xx = np.mgrid[:shape[0], :shape[1]]
+    return quadrant_of(yy, xx, centre, angle_deg)
+
+
+def derive(cells: np.ndarray, region: np.ndarray, mx: np.ndarray, angle_deg: float = 0):
+    """Per-cell table (tissue, cortical layer, quadrant) and per-image traits, in pixels."""
     root = region >= 1
     stele = region == 2
     props = pd.DataFrame(measure.regionprops_table(
@@ -196,7 +236,8 @@ def derive(cells: np.ndarray, region: np.ndarray, mx: np.ndarray):
         edge_band = root & ~morphology.erosion(root, morphology.disk(6))
         edge = set(np.unique(cells[edge_band])) - {0}
         adj = cell_adjacency(cells)
-        cortex = set(props.label) - in_stele - edge
+        air = air_spaces(props, adj) - in_stele
+        cortex = set(props.label) - in_stele - edge - air
         boundary = morphology.dilation(stele, morphology.disk(6)) & ~stele
         seed = (set(np.unique(cells[boundary])) - {0}) & cortex
         layer = {c: 1 for c in seed}
@@ -205,10 +246,12 @@ def derive(cells: np.ndarray, region: np.ndarray, mx: np.ndarray):
             k += 1
             frontier = {n for c in frontier for n in adj.get(c, ()) if n in cortex and n not in layer}
             layer.update({n: k for n in frontier})
-        props["tissue"] = np.where(props.label.isin(in_stele), "stele",
+        props["tissue"] = np.where(props.label.isin(air), "air_space",
+                          np.where(props.label.isin(in_stele), "stele",
                                    np.where(props.label.isin(edge), "epidermis",
-                                            np.where(props.label.isin(layer.keys()), "cortex", "unassigned")))
+                                            np.where(props.label.isin(layer.keys()), "cortex", "unassigned"))))
         props["layer"] = props.label.map(layer)
+        props["quadrant"] = quadrant_of(props.y, props.x, centre_of(region), angle_deg)
     mxp = pd.DataFrame(measure.regionprops_table(mx, properties=("label", "area"))) if mx.any() else pd.DataFrame(columns=["label", "area"])
     traits = {
         "root_area_px": int(root.sum()),
@@ -216,11 +259,37 @@ def derive(cells: np.ndarray, region: np.ndarray, mx: np.ndarray):
         "cortex_area_px": int(root.sum() - stele.sum()),
         "n_cortical_layers": int(props.layer.max()) if props.layer.notna().any() else 0,
         "n_cortex_cells": int((props.tissue == "cortex").sum()),
+        "n_air_spaces": int((props.tissue == "air_space").sum()),
+        "air_space_total_area_px": int(props.area_px[props.tissue == "air_space"].sum()),
         "mx_n": int(len(mxp)),
         "mx_mean_area_px": float(mxp.area.mean()) if len(mxp) else np.nan,
         "mx_total_area_px": int(mxp.area.sum()) if len(mxp) else 0,
     }
     return props, mxp.rename(columns={"area": "area_px"}), traits
+
+
+def quadrant_traits(cells, region, mx, props, angle_deg: float = 0) -> pd.DataFrame:
+    """One row per quadrant: areas, layers, cortex cells, air spaces, metaxylem (pixels)."""
+    centre = centre_of(region)
+    q = quadrant_map(region.shape, centre, angle_deg)
+    mxp = pd.DataFrame(measure.regionprops_table(mx, properties=("label", "area", "centroid"))) if mx.any() else None
+    rows = []
+    for k in (1, 2, 3, 4):
+        inq = q == k
+        c = props[(props.get("quadrant") == k) & (props.tissue == "cortex")] if len(props) else props
+        a = props[(props.get("quadrant") == k) & (props.tissue == "air_space")] if len(props) else props
+        mq = mxp[quadrant_of(mxp["centroid-0"], mxp["centroid-1"], centre, angle_deg) == k] if mxp is not None else []
+        rows.append({"quadrant": k,
+                     "root_area_px": int((inq & (region >= 1)).sum()),
+                     "stele_area_px": int((inq & (region == 2)).sum()),
+                     "cortex_area_px": int((inq & (region == 1)).sum()),
+                     "n_cortical_layers": int(c.layer.max()) if len(c) else 0,
+                     "n_cortex_cells": len(c),
+                     "mean_cortex_cell_area_px": float(c.area_px.mean()) if len(c) else np.nan,
+                     "n_air_spaces": len(a),
+                     "air_space_total_area_px": int(a.area_px.sum()) if len(a) else 0,
+                     "mx_n": len(mq)})
+    return pd.DataFrame(rows)
 
 
 def layer_image(cells: np.ndarray, props: pd.DataFrame) -> np.ndarray:
@@ -255,9 +324,18 @@ def qc_png(gray, cells, region, mx, props, traits, out_png, title=""):
     ax[0].contour(region == 2, [0.5], colors="cyan", linewidths=1)
     if mx.any():
         ax[0].contour(mx > 0, [0.5], colors="red", linewidths=1.2)
+    air = np.isin(cells, props.label[props.tissue == "air_space"].values)
+    if air.any():
+        ax[1].contour(air, [0.5], colors="magenta", linewidths=0.8)
+    cy, cx = centre_of(region)
+    for a in ax:
+        a.axhline(cy, color="white", lw=0.6, ls="--")
+        a.axvline(cx, color="white", lw=0.6, ls="--")
+    for k, (dy, dx) in zip((1, 2, 3, 4), ((-1, 1), (-1, -1), (1, -1), (1, 1))):
+        ax[0].text(cx + dx * 0.42 * gray.shape[1], cy + dy * 0.42 * gray.shape[0], f"Q{k}", color="white", ha="center", va="center")
     ax[0].set_title("root (yellow), stele (cyan), metaxylem (red)")
     ax[1].imshow(lay, cmap="turbo", alpha=0.55, interpolation="nearest")
-    ax[1].set_title(f"cortical layers C1..C{traits['n_cortical_layers']}")
+    ax[1].set_title(f"cortical layers C1..C{traits['n_cortical_layers']}, air spaces (magenta)")
     fig.suptitle(f"{title}   layers={traits['n_cortical_layers']}  MX={traits['mx_n']}  cortex cells={traits['n_cortex_cells']}")
     fig.tight_layout()
     fig.savefig(out_png, dpi=100)

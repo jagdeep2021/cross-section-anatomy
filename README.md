@@ -41,7 +41,14 @@ Everything else is derived by `derive()`, so the editor and the summary always a
 - **Cortical layer** = rings of touching cells counted outward from the stele (C1 = touching the
   endodermis). A missing cell makes the rings step outward too fast, so **automatic layer counts run high**
   (maize sibs ~13 auto). Only reviewed images count.
-- **Metaxylem** = large round lumens inside the stele (> 5× median stele cell, solidity > 0.85).
+- **Metaxylem** = large round lumens inside the stele (> 5× median stele cell, solidity > 0.85),
+  found as dark lumens or as big round Cellpose "cells"; touching pieces merged into one vessel.
+- **Air spaces** = objects < 25% of their neighbours' median area with ≤ 5 neighbours (the gaps at
+  four-cell junctions), outside the stele. Kept and counted (`n_air_spaces`, area) but not cells:
+  excluded from cell sizes and from layer rings. Tune `SPACE_RATIO` / `SPACE_MAX_NB` in pipeline.py.
+- **Quadrants** = Q1 top-right, Q2 top-left, Q3 bottom-left, Q4 bottom-right around the stele
+  centroid, image axes rotated by `settings.json:quadrant_angle_deg`. Sub-samples within an image;
+  Q1 of one image is not Q1 of another.
 - **Scale**: `settings.json:scale_bar_um` ÷ detected bar length (bottom-left bright run).
   Maize Ortiz images: 100 um = 139 px (0.719 um/px). Setaria: no bar → `um_per_px` in samples.xlsx.
 - **Replicate** = `plant` in samples.xlsx; per_plant averages that plant's images.

@@ -38,6 +38,7 @@ class Reviewer:
         self.dir = Path(anatomy_dir)
         self.settings = json.loads((self.dir / "settings.json").read_text())
         self.image_dir = Path(self.settings["image_dir"])
+        self.angle = float(self.settings.get("quadrant_angle_deg", 0))
         self.files = sorted((self.dir / "masks").glob("*.npz"))
         if not self.files:
             sys.exit(f"No masks in {self.dir / 'masks'}; run run_batch.py first.")
@@ -95,7 +96,11 @@ class Reviewer:
         self.cells = v.add_labels(cells, name="cells", opacity=0.9,
                                   colormap=DirectLabelColormap(color_dict={None: "yellow", 0: "transparent"}))
         self.cells.contour = 1
+        self.air = v.add_labels(np.zeros_like(cells), name="air spaces", opacity=0.8,
+                                colormap=DirectLabelColormap(color_dict={None: "magenta", 0: "transparent"}))
         self.layers.editable = False
+        self.air.editable = False
+        self.quads = v.add_shapes(name="quadrants", edge_color="white", edge_width=1.5, face_color="transparent")
         v.layers.selection.active = self.cells
         self.recompute()
         with self.pick.changed.blocked():
@@ -127,10 +132,20 @@ class Reviewer:
 
     # ---------------------------------------------------------- edits
     def recompute(self):
-        props, _, tr = P.derive(self.cells.data, self.region.data, self.mx.data)
+        props, _, tr = P.derive(self.cells.data, self.region.data, self.mx.data, self.angle)
         self.layers.data = P.layer_image(self.cells.data, props)
+        cy, cx = P.centre_of(self.region.data)
+        h, w = self.gray.shape
+        a = np.radians(self.angle)
+        L = 0.5 * max(h, w)
+        ends = [np.array([[cy - L * np.sin(a + t), cx + L * np.cos(a + t)], [cy, cx]]) for t in (0, np.pi / 2, np.pi, 3 * np.pi / 2)]
+        self.quads.data = []
+        self.quads.add_lines(ends, edge_color="white", edge_width=1.5)
+        qt = P.quadrant_traits(self.cells.data, self.region.data, self.mx.data, props, self.angle)
+        self.air.data = np.isin(self.cells.data, props.label[props.tissue == "air_space"].values).astype(np.uint8)
         self.info.value = (f"{self.i + 1}/{len(self.files)}  {self.rel}  [{self.status}]\n"
-                           f"layers {tr['n_cortical_layers']}   metaxylem {tr['mx_n']}   cortex cells {tr['n_cortex_cells']}")
+                           f"layers {tr['n_cortical_layers']}   metaxylem {tr['mx_n']}   cortex cells {tr['n_cortex_cells']}   air spaces {tr['n_air_spaces']}\n"
+                           f"layers by quadrant Q1-Q4: {'/'.join(str(n) for n in qt.n_cortical_layers)}")
 
     def _click(self, viewer, event):
         mods = set(event.modifiers)

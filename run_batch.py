@@ -49,7 +49,7 @@ def scale_bar_px(path, bottom=0.06, left=0.35) -> int:
 def load_settings(out_dir: Path, image_dir: Path | None = None, **override) -> dict:
     f = out_dir / "settings.json"
     s = json.loads(f.read_text()) if f.exists() else {
-        "image_dir": str(image_dir), "scale_bar_um": 100, "diameter": None,
+        "image_dir": str(image_dir), "scale_bar_um": 100, "diameter": None, "quadrant_angle_deg": 0,
         "note": "scale_bar_um = length of the burned-in scale bar; 0 if the images have none "
                 "(then set um_per_px per image in samples.xlsx)."}
     s.update({k: v for k, v in override.items() if v is not None})
