@@ -153,21 +153,39 @@ def main(anatomy_dir: Path):
     per_file_path = first(per_file_path, ["image_file", *keys, "tech_rep", "status", "quadrant", "file",
                                           "n_files_quadrant", "rel_position"]) if len(per_file_path) else per_file_path
     all_cells = pd.concat(all_rows, ignore_index=True)
-    # plan step 2-3: one spline per image x quarter, features on both axes -> one row per profile
-    feat_rows = []
-    for (img, q), d in per_file_path.groupby(["image_file", "quadrant"]) if len(per_file_path) else []:
+    # plan step 2-3: one spline per image, the four quarters pooled (6-9 points per quarter is too few for a
+    # stable GCV fit); features read off it on three axes, and the curve itself on a fixed grid (for fPCA)
+    feat_rows, curve_rows, quarter_rows = [], [], []
+    grid_rel = np.round(np.linspace(0, 1, 21), 2)
+    for img, d in per_file_path.groupby("image_file") if len(per_file_path) else []:
         um = d.area_um2.notna().all()
-        y = d.area_um2 if um else d.area_px
-        row = {c: d[c].iloc[0] for c in ["image_file", *keys, "tech_rep", "status", "quadrant", "n_files_quadrant",
-                                          "stele_radius_um", "root_radius_um"]}
-        row.update(area_unit="um2" if um else "px", mean_cell_area=y.mean(), n_cells=len(d))
-        for ax in ("file", "rel_position"):
-            sfx = "_file" if ax == "file" else "_rel"
-            row.update({k + sfx: v for k, v in PP.profile_features(d[ax], y).items()})
-        c = PP.with_bin(all_cells[(all_cells.image_file == img) & (all_cells.quadrant == q)])
-        b = c.groupby("r_bin")[y.name].agg(["mean", "size"])
-        row.update({k + "_radial": v for k, v in PP.profile_features(b.index, b["mean"], b["size"]).items()})
+        ycol = "area_um2" if um else "area_px"
+        c = PP.with_bin(all_cells[all_cells.image_file == img])
+        b = c.groupby("r_bin")[ycol].agg(["mean", "size"])
+        meta = {k: d[k].iloc[0] for k in ["image_file", *keys, "tech_rep", "status"]}
+        row = {**meta, "n_files": d.groupby("quadrant").file.max().median(),
+               "stele_radius_um": d.stele_radius_um.iloc[0], "root_radius_um": d.root_radius_um.iloc[0],
+               "area_unit": "um2" if um else "px", "mean_cell_area_spoke": d[ycol].mean(),
+               "mean_cell_area_cortex": c[ycol].mean(), "n_spoke_cells": len(d), "n_cortex_cells": len(c)}
+        axes = {"_file": (d.file, d[ycol], None), "_rel": (d.rel_position, d[ycol], None),
+                "_radial": (b.index, b["mean"], b["size"])}
+        for sfx, (x, y, w) in axes.items():
+            row.update({k + sfx: v for k, v in PP.profile_features(x, y, w).items()})
+            at = np.arange(1, d.file.max() + 1) if sfx == "_file" else grid_rel
+            sp = PP.spline(x, y, w, at=at)
+            curve_rows += [{**meta, "axis": sfx[1:], "x": xv, "fitted": yv, "area_unit": row["area_unit"]}
+                           for xv, yv in zip(at, sp[1] if sp is not None else [np.nan] * len(at))]
         feat_rows.append(row)
+        for q, dq in d.groupby("quadrant"):          # Tyler's unit so far: one spline per quarter (QC / comparison)
+            cq = c[c.quadrant == q]
+            bq = cq.groupby("r_bin")[ycol].agg(["mean", "size"])
+            rq = {**meta, "quadrant": q, "n_files": dq.file.max(), "area_unit": row["area_unit"]}
+            for sfx, (x, y, w) in {"_file": (dq.file, dq[ycol], None), "_rel": (dq.rel_position, dq[ycol], None),
+                                   "_radial": (bq.index, bq["mean"], bq["size"])}.items():
+                rq.update({k + sfx: v for k, v in PP.profile_features(x, y, w).items()})
+            quarter_rows.append(rq)
+    spline_curves = pd.DataFrame(curve_rows)
+    profile_features_quarter = pd.DataFrame(quarter_rows)
     profile_features = pd.DataFrame(feat_rows)
     out_dir = anatomy_dir.parent / "results"
     out_dir.mkdir(exist_ok=True)
@@ -178,14 +196,21 @@ def main(anatomy_dir: Path):
                               "endodermis; one spoke per quadrant, picked where the cortex is most complete, edited "
                               "by hand. rel_position = (file - 0.5) / n_files_quadrant. plant = biological replicate, "
                               "tech_rep = image number within the plant. status auto = not reviewed yet"),
-            "profile_features": (profile_features, "one row per image x quarter: smoothing spline (GCV) through cell "
-                                 "size vs file, features read off the curve on two axes. _file = absolute file "
+            "profile_features": (profile_features, "one row per image: smoothing spline (GCV) through cell size, the "
+                                 "four quarters pooled, features read off the curve on three axes. _file = absolute file "
                                  "number; _rel = relative position (file - 0.5) / n_files_quadrant; _radial = all cortical cells of the quarter, "
                                  f"mean per {N_BINS} r_norm bins (0 = stele edge, 1 = epidermis). peak_height, "
                                  "peak_pos; rise_slope = (peak - first) / distance; decay_slope = local, over 20% of "
                                  "the range past the peak; outer_rise = last value - minimum after the peak. Slopes "
                                  "and heights in area_unit per file (or per unit relative position). NaN = fewer "
                                  f"than {PP.MIN_PTS} files or feature undefined (peak at an end)"),
+            "profile_features_quarter": (profile_features_quarter, "same features, one spline per image x quarter "
+                                         "(6-9 points each: noisier, NaN when < 5 files). For comparison with the "
+                                         "per-quarter approach; primary = profile_features"),
+            "spline_curves": (spline_curves, "the fitted image curves themselves (long format): axis file = at files "
+                              "1..n, rel / radial = at 0, 0.05 ... 1; NaN outside the data (no extrapolation). "
+                              "A cubic smoothing spline has no short parameter list; the curve on a fixed grid is "
+                              "the input for fPCA (plan step 5)"),
             "per_plant_file": (per_plant_file, "plant x file: path cells pooled over quadrants and images "
                                "(display only; analyse per_file_path with plant as the unit)")},
         f"all_cells_{today}.xlsx": {

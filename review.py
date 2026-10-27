@@ -43,7 +43,8 @@ _PAL = ["#3b4cc0", "#1f9e89", "#6ece58", "#fde725", "#f89540", "#e16462",
         "#b12a90", "#7e03a8", "#2c7fb8", "#7fcdbb", "#d95f0e", "#636363"]
 RING_COLORS = {k: _PAL[(k - 1) % len(_PAL)] for k in range(1, 41)}
 TARGETS = {"Cell": "yellow", "Metaxylem": "red", "Stele": "cyan", "File path": "orange"}
-HELP = ("click  add here\n⌘-click  remove\nShift-drag  draw outline → add\n⌘-Shift-drag  draw outline → remove\n"
+CMD = "⌘" if sys.platform == "darwin" else "Ctrl"   # napari's "Control" is Cmd on a Mac
+HELP = (f"click  add here\n{CMD}-click  remove\nShift-drag  draw outline → add\n{CMD}-Shift-drag  draw outline → remove\n"
         "drag  pan · scroll  zoom\nFile path: Alt-click moves the spoke\n\n"
         "1-4 target · Shift-H hide overlays\nShift-S save + next · , / . prev / next")
 

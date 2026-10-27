@@ -34,18 +34,21 @@ plt.rcParams.update({"font.size": 10, "font.family": "sans-serif", "axes.spines.
 
 
 # ---------------------------------------------------------------- curves and features
-def spline(x, y, w=None, n=100):
-    """GCV smoothing spline through (x, y); repeated x are averaged first. None if too few points."""
+def spline(x, y, w=None, n=100, at=None):
+    """GCV smoothing spline through (x, y); repeated x are averaged first (weight = count). None if too few points.
+    at: evaluate there instead (NaN outside the data range: no extrapolation)."""
     d = pd.DataFrame({"x": np.asarray(x, float), "y": np.asarray(y, float),
                       "w": 1.0 if w is None else np.asarray(w, float)}).dropna()
     d = d.assign(wy=d.y * d.w).groupby("x")[["wy", "w"]].sum()
     if len(d) < MIN_PTS:
         return None
-    xs = np.linspace(d.index.min(), d.index.max(), n)
+    xs = np.linspace(d.index.min(), d.index.max(), n) if at is None else np.asarray(at, float)
     try:
-        return xs, make_smoothing_spline(d.index.values, (d.wy / d.w).values, w=d.w.values)(xs)
+        ys = make_smoothing_spline(d.index.values, (d.wy / d.w).values, w=d.w.values)(xs)
     except Exception:          # degenerate input (e.g. all y equal)
         return None
+    ys[(xs < d.index.min() - 1e-9) | (xs > d.index.max() + 1e-9)] = np.nan
+    return xs, ys
 
 
 def profile_features(x, y, w=None) -> dict:
@@ -117,7 +120,8 @@ def _curve(ax, x, y, w, color, lw=2.2, dots=True, ms=4):
 
 
 def quadrant_profiles(axs, ft, cells, y_col, y_lab, fontsize=9, compact=False):
-    """One image: per quarter, the spoke (path cells) and all cortical cells. Also drawn live in review.py.
+    """One image: per quarter (colour, QC) and pooled over the quarters (black: the image's curve, the one
+    the features come from), for the spoke and for all cortical cells. Also drawn live in review.py.
     ft: file_table rows; cells: derive() props (tissue, quadrant, r_norm, y_col)."""
     ft, cb = with_rel(ft), with_bin(cells)
     for ax, (view, d_all) in zip(axs, (("spoke", ft), ("radial", cb))):
@@ -126,12 +130,20 @@ def quadrant_profiles(axs, ft, cells, y_col, y_lab, fontsize=9, compact=False):
         for q, d in d_all.groupby("quadrant"):
             if view == "radial":
                 d = d.groupby(x)[y_col].agg(["mean", "size"]).reset_index().rename(columns={"mean": y_col})
-                e = _curve(ax, d[x], d[y_col], d["size"], QCOL[q], lw=1.8, ms=3)
+                e = _curve(ax, d[x], d[y_col], d["size"], QCOL[q], lw=1.1, ms=3)
             else:
                 d = d.sort_values(x)
-                e = _curve(ax, d[x], d[y_col], None, QCOL[q], lw=1.8, ms=3.5)
+                e = _curve(ax, d[x], d[y_col], None, QCOL[q], lw=1.1, ms=3.5)
             if e:
                 ends.append((*e, f"Q{q}"))
+        if view == "radial":
+            pooled = d_all.groupby(x)[y_col].agg(["mean", "size"])
+            sp = spline(pooled.index, pooled["mean"], pooled["size"])
+        else:
+            sp = spline(d_all[x], d_all[y_col])
+        if sp is not None:                      # the image's own curve: all four quarters pooled
+            ax.plot(*sp, color=INK, lw=2.6, alpha=0.85)
+            ends.append((sp[0][-1], sp[1][-1], "image"))
         _axes(ax, title, "Stele → epidermis (0-1)" if compact else xl, y_lab)
         _end_labels(ax, ends, fontsize)
 
