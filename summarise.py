@@ -100,7 +100,7 @@ def write_samples(anatomy_dir: Path) -> Path:
     if not sfile.exists():
         make_samples(sorted((anatomy_dir / "masks").glob("*.npz"))).to_excel(sfile, index=False)
         print(f"\nWrote {sfile}\nFill in um_per_px (microns per pixel) for every image, rename group_1, group_2 ... "
-              "(e.g. species, genotype), check plant, then run Summarise.")
+              "(e.g. species, genotype), check plant, then click Make results.")
     return sfile
 
 

@@ -53,14 +53,14 @@ import pipeline as P
 import run_batch as RB
 import summarise as SUM
 
-TARGETS = {"Cell": "yellow", "Metaxylem": "red", "Stele": "cyan", "File path": "orange", "Centre": "white"}
+TARGETS = {"Cell": "yellow", "Metaxylem": "red", "Stele": "cyan", "File path": "orange", "Quarters": "white"}
 # the layers each editing target owns: the opacity slider acts on these only
 TARGET_LAYERS = {"Cell": ("cells", "air"), "Metaxylem": ("mx",), "Stele": ("region",),
-                 "File path": ("path", "nums"), "Centre": ("quads", "qlab")}
+                 "File path": ("path", "nums"), "Quarters": ("quads", "qlab")}
 CMD = "⌘" if sys.platform == "darwin" else "Ctrl"   # napari's "Control" is Cmd on a Mac
 _KEYS = [("Click", "add"), (f"{CMD}-click", "remove (stele: the whole stele)"), ("Shift-drag", "draw outline, add"),
          (f"{CMD}-Shift-drag", "draw outline, remove"), ("Drag / scroll", "move / zoom"),
-         ("Alt-click", "move spoke (file path)"), ("1 2 3 4 5", "cell, metaxylem, stele, file path, centre"), (f"5, {CMD}-click a quarter", "drop / restore that quarter"), ("5, click", "move the centre"),
+         ("Alt-click", "move spoke (file path)"), ("1 2 3 4 5", "cell, metaxylem, stele, file path, quarters"), (f"5, {CMD}-click a quarter", "drop it (click = back)"),
          ("Shift-H", "hide / show outlines"), ("Shift-S", "save + next"), (", .", "previous / next image")]
 HELP = ("<table cellspacing='0' cellpadding='2' style='font-size:12px'>" +
         "".join(f"<tr><td style='color:#ffd479; padding-right:10px'><b>{k}</b></td><td>{v}</td></tr>"
@@ -635,22 +635,11 @@ class Reviewer:
                 region[m] = 2
         elif t == "File path" and lbl:
             self._path_remove([lbl]) if remove or lbl in self.path_cells else self._path_add([lbl])
-        elif t == "Centre":
-            # click = put the centre here; Cmd/Ctrl-click on the centre = back to automatic,
-            # anywhere else = drop that quarter from the results (again = bring it back)
-            cy, cx = self._centre()
-            if remove and np.hypot(y - cy, x - cx) > 0.04 * max(self.gray.shape):
-                q = int(P.quadrant_of(y, x, (cy, cx), self.angle))
-                self.dropped ^= {q}
-                self._refresh()
-                self.info.value += f"\nQ{q} " + ("dropped from the results." if q in self.dropped else "back in.")
-                return
-            self.centre = None if remove else (float(y), float(x))
-            props, _, _ = P.derive(cells, region, mx, self.angle, self._centre())
-            self.spokes, self.path_q, self.path_cells = P.auto_paths(cells, region, props, self.angle, self._centre())
+        elif t == "Quarters":                       # Cmd/Ctrl-click = drop this quarter (damaged), click = back in
+            q = int(P.quadrant_of(y, x, self._centre(), self.angle))
+            self.dropped = self.dropped | {q} if remove else self.dropped - {q}
             self._refresh()
-            self.info.value += ("\nCentre back to the stele centre." if remove else "\nCentre moved.") + \
-                " Quarters and file paths re-picked."
+            self.info.value += f"\nQ{q} " + ("dropped from the results." if q in self.dropped else "in the results.")
             return
         self._refresh()
 
