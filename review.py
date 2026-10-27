@@ -601,5 +601,11 @@ class Reviewer:
 
 
 if __name__ == "__main__":
-    Reviewer(Path(sys.argv[1]) if len(sys.argv) > 1 else None)
+    r = Reviewer(Path(sys.argv[1]) if len(sys.argv) > 1 else None)
+    # napari reopens where it last closed, which can be off a screen that is no longer attached:
+    # always open on the main screen, full size
+    win = r.viewer.window._qt_window
+    win.setGeometry(napari.qt.get_qapp().primaryScreen().availableGeometry())
+    win.showMaximized()
+    win.raise_()
     napari.run()
