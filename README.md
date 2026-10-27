@@ -58,7 +58,8 @@ Everything else is derived by `derive()`, so the editor and the summary always a
   Q1 of one image is not Q1 of another.
 - **Drawing** (Shift-D cell, Shift-X metaxylem): freehand outline; one owner per pixel, so the drawn
   object takes any overlap and a neighbour left with < 25% of its area is removed (no slivers,
-  nothing counted twice). A drawn vessel clears cell pixels under it.
+  nothing counted twice). Metaxylem differs: a drawn vessel merges with any vessel it touches (vessels
+  never touch, so overlap = same vessel; one count, union area), and clears cell pixels under it.
 - **Scale**: `settings.json:scale_bar_um` ÷ detected bar length (bottom-left bright run).
   Maize Ortiz images: 100 um = 139 px (0.719 um/px). Setaria: no bar → `um_per_px` in samples.xlsx.
 - **Replicate** = `plant` in samples.xlsx; per_plant averages that plant's images.

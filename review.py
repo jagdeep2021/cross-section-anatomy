@@ -13,7 +13,8 @@ Two click modes (dropdown in the Review panel, or Shift-M to switch):
   Draw cell (button or Shift-D)   trace a missing cell freehand; it takes any overlapping
                    pixels (each pixel belongs to one cell, so nothing is counted twice).
                    In File paths mode the drawn cell also joins the path.
-  Draw metaxylem (button or Shift-X)   same, for a vessel; it also clears cell pixels under it.
+  Draw metaxylem (button or Shift-X)   same, for a vessel, but a red vessel it touches is merged
+                   into it (one vessel, union area); it also clears cell pixels under it.
 
   File paths  (one spoke per quadrant; its cells, stele -> out, are files 1..n)
     click            add / remove the cell from its quadrant's path (zig-zag is fine)
@@ -287,8 +288,10 @@ class Reviewer:
             new = int(target.max()) + 1
             hit = {int(l): int((target == l).sum()) for l in np.unique(target[m]) if l}
             target[m] = new   # one owner per pixel: the drawn object takes any overlap
-            for l, before in hit.items():   # a neighbour that lost most of itself is gone, not a sliver
-                if (target == l).sum() < 0.25 * before:
+            for l, before in hit.items():
+                if target is mx:   # vessels never touch, so an overlapped vessel is the same vessel: merge
+                    target[target == l] = new
+                elif (target == l).sum() < 0.25 * before:   # a cell that lost most of itself is gone, not a sliver
                     target[target == l] = 0
             if target is mx:
                 cells[m] = 0   # a vessel is not a cell
