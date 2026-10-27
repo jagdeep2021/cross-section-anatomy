@@ -86,7 +86,7 @@ class Reviewer:
 
     def set_mode(self, mode):
         self.mode = mode
-        self.help.value = HELP[mode]
+        self.help.value = HELP[mode] + "\n\nKeys:  Shift-M switch mode   Shift-R redraw   Shift-S save + next   . next   , previous"
         with self.mode_box.changed.blocked():
             self.mode_box.value = mode
         self.rings.visible = mode == "Fix cells"
