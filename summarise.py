@@ -47,8 +47,9 @@ COLUMNS = {
     "file": "cell file number on the spoke: 1 = next to the stele",
     "rel_position": "(file - 0.5) / n_files_quadrant: 0 = stele side, 1 = epidermis side",
     "label": "cell number inside the image's mask",
-    "tissue": "cortex | stele | epidermis | air_space | metaxylem | unassigned | cortex_dropped (in a dropped quarter)",
-    "dropped_quarters": "quarters left out by hand (damaged tissue): no files or cortical cell sizes from them",
+    "tissue": "cortex | stele | epidermis | air_space | metaxylem | unassigned | cortex_dropped / air_space_dropped (in a dropped quarter)",
+    "dropped_quarters": "quarters left out by hand (damaged tissue): cortex traits (files, cell sizes, air spaces, "
+                        "cortex width) use the other quarters; root, stele and metaxylem areas stay whole-section",
     "ring": "adjacency steps from the stele (a gap check; runs high)",
     "x": "cell centre, pixels from the left", "y": "cell centre, pixels from the top",
     "angle_rad": "direction of the cell centre from the centre, counter-clockwise from the right (radians)",
@@ -158,7 +159,15 @@ def main(anatomy_dir: Path):
 
         nq = ft.groupby("quadrant").file.max().reindex([1, 2, 3, 4]) if len(ft) else pd.Series([np.nan] * 4, index=[1, 2, 3, 4])
         tr = {k: v for k, v in tr.items() if not k.startswith(("n_cortical_layers", "n_layers"))}
+        # cortex traits from the kept quarters only; root, stele and metaxylem stay whole-section
         tr["n_cortex_cells"] = int((props.tissue == "cortex").sum())
+        tr["n_air_spaces"] = int((props.tissue == "air_space").sum())
+        tr["air_space_total_area_px"] = int(props.area_px[props.tissue == "air_space"].sum())
+        if dropped:
+            r_st, r_rt = P.radial_profile(region, centre)
+            q_deg = (np.floor(np.mod(np.arange(360) - angle, 360) / 90) + 1).astype(int)
+            keep = ~np.isin(q_deg, dropped)
+            tr["cortex_width_px"] = float(np.mean((r_rt - r_st)[keep])) if keep.any() else np.nan
         tr["dropped_quarters"] = " ".join(f"Q{q}" for q in sorted(dropped))
         tr["mean_cortex_cell_area_px"] = float(props.area_px[props.tissue == "cortex"].mean()) if len(props) else np.nan
         img_rows.append({**meta, "tech_rep": int(tech_rep[rel]), "status": status, "um_per_px": s,

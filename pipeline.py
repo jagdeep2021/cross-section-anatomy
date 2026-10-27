@@ -463,10 +463,11 @@ def load_dropped(npz_path) -> tuple:
 
 
 def drop_quarters(props, dropped):
-    """Cortical cells in a dropped quarter become tissue 'cortex_dropped' (kept in all_cells, out of the means)."""
+    """Cortical cells and air spaces in a dropped quarter get tissue '..._dropped' (kept in all_cells, out of the means)."""
     if dropped and len(props):
         props = props.copy()
-        props.loc[props.quadrant.isin(dropped) & (props.tissue == "cortex"), "tissue"] = "cortex_dropped"
+        for t in ("cortex", "air_space"):
+            props.loc[props.quadrant.isin(dropped) & (props.tissue == t), "tissue"] = t + "_dropped"
     return props
 
 
