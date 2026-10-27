@@ -27,8 +27,8 @@ cd ~/lab-code/09_phenotyping_pipelines/scripts/cross_section_anatomy
 ```
 Setup once: double-click `Install (Mac).command` or `Install (Windows).bat`. It uses uv to install
 Python 3.14 and requirements.txt into this folder (`.uv/`, `.venv/`; no admin rights; ~1 min, 2.8 GB;
-delete the folder to uninstall). Then `Open app (…)`: the app has Measure images…, Open…, the um/pixel scale and Make results as buttons,
-plus the outline editor; `run_batch.py` / `summarise.py` still work from the command line.
+delete the folder to uninstall). Then `Open app (…)`: the top bar has Open folder… (measures new images), Make results, the µm/px scale,
+the image list and the editor (1-5: cell, metaxylem, stele, file path, centre; Ctrl/⌘-click a quarter in centre mode drops it); `run_batch.py` / `summarise.py` still work from the command line.
 On a Mac, a downloaded .command opens the first time only with right-click → Open.
 
 ## Editable state
