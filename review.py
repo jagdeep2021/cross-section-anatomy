@@ -53,7 +53,7 @@ class Reviewer:
     def __init__(self, anatomy_dir: Path, show: bool = True):
         self.dir = Path(anatomy_dir)
         self.settings = json.loads((self.dir / "settings.json").read_text())
-        self.image_dir = Path(self.settings["image_dir"])
+        self.image_dir = P.image_dir(self.dir, self.settings)
         self.angle = float(self.settings.get("quadrant_angle_deg", 0))
         self.files = sorted((self.dir / "masks").glob("*.npz"))
         if not self.files:

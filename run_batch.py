@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 
@@ -53,7 +54,7 @@ def scale_bar_px(path, bottom=0.06, left=0.35) -> int:
 def load_settings(out_dir: Path, image_dir: Path | None = None, **override) -> dict:
     f = out_dir / "settings.json"
     s = json.loads(f.read_text()) if f.exists() else {
-        "image_dir": str(image_dir), "scale_bar_um": 100, "diameter": None, "quadrant_angle_deg": 0,
+        "image_dir": Path(os.path.relpath(image_dir, out_dir)).as_posix(), "scale_bar_um": 100, "diameter": None, "quadrant_angle_deg": 0,
         "note": "scale_bar_um = length of the burned-in scale bar; 0 if the images have none "
                 "(then set um_per_px per image in samples.xlsx)."}
     s.update({k: v for k, v in override.items() if v is not None})

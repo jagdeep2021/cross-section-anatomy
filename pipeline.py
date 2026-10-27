@@ -487,3 +487,10 @@ def um_per_px(anatomy_dir, rel: str, bar_px: int, settings: dict) -> float:
         if rel in s.index and pd.notna(s.at[rel, "um_per_px"]):
             return float(s.at[rel, "um_per_px"])
     return settings.get("scale_bar_um", 0) / bar_px if bar_px and settings.get("scale_bar_um") else np.nan
+
+
+def image_dir(anatomy_dir, settings: dict) -> Path:
+    """settings image_dir is stored relative to the anatomy folder, so the experiment works on any computer
+    (Mac or Windows, any OneDrive location). An absolute path still works if it exists."""
+    d = Path(settings["image_dir"])
+    return d if d.is_absolute() and d.exists() else (Path(anatomy_dir) / d).resolve()
