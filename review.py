@@ -42,7 +42,8 @@ from matplotlib.figure import Figure
 from magicgui.widgets import CheckBox, ComboBox, Container, FloatSlider, FloatSpinBox, Label, PushButton
 from napari.qt.threading import thread_worker
 from napari.utils.colormaps import DirectLabelColormap
-from qtpy.QtWidgets import QFileDialog, QMessageBox
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import QFileDialog, QGridLayout, QLabel, QMessageBox, QWidget
 from scipy import ndimage as ndi
 from skimage.draw import polygon as fill_polygon
 
@@ -60,9 +61,13 @@ VIEWS = {"cells": ("cells",), "stele": ("region",), "metaxylem": ("mx",), "file 
          "air spaces": ("air",), "quarters": ("quads",), "rings": ("rings",)}
 TARGETS = {"Cell": "yellow", "Metaxylem": "red", "Stele": "cyan", "File path": "orange"}
 CMD = "⌘" if sys.platform == "darwin" else "Ctrl"   # napari's "Control" is Cmd on a Mac
-HELP = (f"click  add here\n{CMD}-click  remove\nShift-drag  draw outline → add\n{CMD}-Shift-drag  draw outline → remove\n"
-        "drag  pan · scroll  zoom\nFile path: Alt-click moves the spoke\n\n"
-        "1-4 target · Shift-H hide overlays\nShift-S save + next · , / . prev / next")
+_KEYS = [("Click", "add"), (f"{CMD}-click", "remove (stele: the whole stele)"), ("Shift-drag", "draw outline, add"),
+         (f"{CMD}-Shift-drag", "draw outline, remove"), ("Drag / scroll", "move / zoom"),
+         ("Alt-click", "move spoke (file path)"), ("1 2 3 4", "cell, metaxylem, stele, file path"),
+         ("Shift-H", "hide / show all"), ("Shift-S", "save + next"), (", .", "previous / next image")]
+HELP = ("<table cellspacing='0' cellpadding='2' style='font-size:12px'>" +
+        "".join(f"<tr><td style='color:#ffd479; padding-right:10px'><b>{k}</b></td><td>{v}</td></tr>"
+                for k, v in _KEYS) + "</table>")
 
 
 class Reviewer:
@@ -248,10 +253,13 @@ class Reviewer:
         self.show = {k: CheckBox(value=k != "rings", text=k) for k in VIEWS}
         for k, box in self.show.items():
             box.changed.connect(lambda v, k=k: self._apply_view(k))
-        names = list(VIEWS)
-        show_grid = Container(widgets=[Label(value="show")] + [
-            Container(widgets=[self.show[a] for a in names[j:j + 2]], layout="horizontal", labels=False)
-            for j in range(0, len(names), 2)], labels=False)
+        show_grid = QWidget()                    # compact: 4 boxes per row, no padding
+        grid = QGridLayout(show_grid)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(0)
+        for j, k in enumerate(VIEWS):
+            grid.addWidget(self.show[k].native, j // 4, j % 4)
         prev, nxt, save = PushButton(text="< Prev"), PushButton(text="Next >"), PushButton(text="Save + next")
         prev.changed.connect(lambda: self.step(-1))
         nxt.changed.connect(lambda: self.step(1))
@@ -262,18 +270,21 @@ class Reviewer:
         self.dock = Container(widgets=[opn, self.scale, row(self.scale_grp, scale_img), summ,
                                        self.pick, self.target_box,
                                        Container(widgets=[prev, nxt], layout="horizontal", labels=False),
-                                       save, self.img_op, show_grid, self.info, Label(value=HELP)])
-        for w in self.dock:
-            if isinstance(w, Label):
-                w.native.setWordWrap(True)
+                                       save, self.img_op, self.info])
+        self.info.native.setWordWrap(True)
+        help_lbl = QLabel(HELP)
+        help_lbl.setTextFormat(Qt.TextFormat.RichText)
         self.dock.native.setMinimumWidth(240)   # no maximum: drag the panel edge to make it wider or narrower
         # live cortex pattern: cell size per quarter, by file and by distance from the stele
         self.fig = Figure(figsize=(3.2, 3.9), dpi=90, layout="constrained")
         self.prof_axes = self.fig.subplots(2, 1)
         self.canvas = FigureCanvasQTAgg(self.fig)
-        self.canvas.setMinimumHeight(330)
+        self.canvas.setMinimumHeight(380)
         lay = self.dock.native.layout()
-        lay.insertWidget(lay.count() - 1, self.canvas)
+        lay.setSpacing(4)
+        lay.insertWidget(lay.count() - 1, show_grid)     # show boxes just above the info line
+        lay.addWidget(self.canvas, stretch=1)            # the graphs take all the spare height
+        lay.addWidget(help_lbl)
         self.viewer.window.add_dock_widget(self.dock, area="right", name="Review")
         qv = self.viewer.window._qt_viewer   # napari's own layer panels are not needed
         for d in (qv.dockLayerList, qv.dockLayerControls):
@@ -517,8 +528,14 @@ class Reviewer:
             elif not remove and not mx[y, x]:
                 P.add_mx(self.gray, mx, cells, y, x)
         elif t == "Stele":
-            m = cells == lbl if lbl else P.lumen_at(self.gray, y, x, 8 * P.typical_cell_area(cells))
-            region[m & (region >= 1) if remove else m] = 1 if remove else 2
+            if remove:
+                region[region == 2] = 1             # the whole stele goes; redraw it with Shift-drag
+                self._refresh()
+                self.info.value += "\nStele removed. Shift-drag around the stele to draw it again."
+                return
+            else:
+                m = cells == lbl if lbl else P.lumen_at(self.gray, y, x, 8 * P.typical_cell_area(cells))
+                region[m] = 2
         elif t == "File path" and lbl:
             self._path_remove([lbl]) if remove or lbl in self.path_cells else self._path_add([lbl])
         self._refresh()
