@@ -703,7 +703,14 @@ class Reviewer:
 
 
 if __name__ == "__main__":
+    if sys.platform == "win32":                  # taskbar shows our icon, not Python's
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("SidhuLab.CrossSectionAnatomy")
     r = Reviewer(Path(sys.argv[1]) if len(sys.argv) > 1 else None)
+    from qtpy.QtGui import QIcon
+    icon = QIcon(str(Path(__file__).with_name("icon.png")))   # a lab maize cross-section (aerenchyma)
+    napari.qt.get_qapp().setWindowIcon(icon)
+    r.viewer.window._qt_window.setWindowIcon(icon)
     # napari reopens where it last closed, which can be off a screen that is no longer attached:
     # always open on the main screen, full size
     win = r.viewer.window._qt_window
