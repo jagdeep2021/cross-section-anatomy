@@ -58,9 +58,9 @@ TARGETS = {"Cell": "yellow", "Metaxylem": "red", "Stele": "cyan", "File path": "
 TARGET_LAYERS = {"Cell": ("cells", "air"), "Metaxylem": ("mx",), "Stele": ("region",),
                  "File path": ("path", "nums"), "Centre": ("quads", "qlab")}
 CMD = "⌘" if sys.platform == "darwin" else "Ctrl"   # napari's "Control" is Cmd on a Mac
-_KEYS = [("Click", "add"), (f"{CMD}-click", "remove (stele: all; centre: drop quarter)"), ("Shift-drag", "draw outline, add"),
+_KEYS = [("Click", "add"), (f"{CMD}-click", "remove (stele: the whole stele)"), ("Shift-drag", "draw outline, add"),
          (f"{CMD}-Shift-drag", "draw outline, remove"), ("Drag / scroll", "move / zoom"),
-         ("Alt-click", "move spoke (file path)"), ("1 2 3 4 5", "cell, metaxylem, stele, file path, centre"),
+         ("Alt-click", "move spoke (file path)"), ("1 2 3 4 5", "cell, metaxylem, stele, file path, centre"), (f"5, {CMD}-click a quarter", "drop / restore that quarter"), ("5, click", "move the centre"),
          ("Shift-H", "hide / show outlines"), ("Shift-S", "save + next"), (", .", "previous / next image")]
 HELP = ("<table cellspacing='0' cellpadding='2' style='font-size:12px'>" +
         "".join(f"<tr><td style='color:#ffd479; padding-right:10px'><b>{k}</b></td><td>{v}</td></tr>"
