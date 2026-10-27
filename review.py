@@ -56,9 +56,9 @@ import summarise as SUM
 TARGETS = {"Cell": "yellow", "Metaxylem": "red", "Stele": "cyan", "File path": "orange", "Centre": "white"}
 # the layers each editing target owns: the opacity slider acts on these only
 TARGET_LAYERS = {"Cell": ("cells", "air"), "Metaxylem": ("mx",), "Stele": ("region",),
-                 "File path": ("path", "nums"), "Centre": ("quads",)}
+                 "File path": ("path", "nums"), "Centre": ("quads", "qlab")}
 CMD = "⌘" if sys.platform == "darwin" else "Ctrl"   # napari's "Control" is Cmd on a Mac
-_KEYS = [("Click", "add"), (f"{CMD}-click", "remove (stele: the whole stele)"), ("Shift-drag", "draw outline, add"),
+_KEYS = [("Click", "add"), (f"{CMD}-click", "remove (stele: all; centre: drop quarter)"), ("Shift-drag", "draw outline, add"),
          (f"{CMD}-Shift-drag", "draw outline, remove"), ("Drag / scroll", "move / zoom"),
          ("Alt-click", "move spoke (file path)"), ("1 2 3 4 5", "cell, metaxylem, stele, file path, centre"),
          ("Shift-H", "hide / show outlines"), ("Shift-S", "save + next"), (", .", "previous / next image")]
@@ -419,6 +419,7 @@ class Reviewer:
         self.cells.contour = 1
         self.air = lab(np.zeros_like(cells), "air spaces", {None: "magenta", 0: "transparent"}, 0.8)
         self.quads = v.add_shapes(name="quadrants + spokes", face_color="transparent")
+        self.qlab = v.add_points(np.empty((0, 2)), name="quarter names", size=0)
         self.outline = v.add_shapes(name="outline", edge_color="white", edge_width=1.5, face_color="transparent")
         self.nums = v.add_points(np.empty((0, 2)), name="file numbers", size=0)
         self.tag = v.add_points(np.empty((0, 2)), name="cursor", size=0)
@@ -428,6 +429,7 @@ class Reviewer:
         self._apply_overlays()
         v.layers.selection.active = self.cells
         self.centre = P.load_centre(f)          # None = the stele centroid
+        self.dropped = set(P.load_dropped(f))   # quarters left out (damaged tissue)
         props, _, _ = P.derive(cells, region, mx, self.angle, self._centre())
         saved = P.load_paths(f)
         if saved is None:
@@ -449,6 +451,7 @@ class Reviewer:
                      self.mx.data.astype(np.uint16), status="reviewed", image_file=self.rel,
                      spokes=self.spokes, path_q=np.asarray(self.path_q, np.int16),
                      path_cells=np.asarray(self.path_cells, np.int32),
+                     dropped_q=np.array(sorted(self.dropped), np.int16),
                      **({} if self.centre is None else {"centre": np.asarray(self.centre, float)}))
         self.status = "reviewed"
 
@@ -470,9 +473,10 @@ class Reviewer:
     def recompute(self):
         cells, region = self.cells.data, self.region.data
         props, _, tr = P.derive(cells, region, self.mx.data, self.angle, self._centre())
+        props = P.drop_quarters(props, self.dropped)            # graphs and file numbers leave them out
         self.props = props
         self.air.data = np.isin(cells, props.label[props.tissue == "air_space"].values).astype(np.uint8)
-        ft = P.file_table(cells, region, props, self.path_q, self.path_cells)
+        ft = P.file_table(cells, region, props, self.path_q, self.path_cells, self.dropped)
         self.path.data = np.isin(cells, ft.label.values).astype(np.uint8) if len(ft) else np.zeros_like(cells, np.uint8)
         pr = props.set_index("label")
         if len(ft):
@@ -486,7 +490,16 @@ class Reviewer:
         line = lambda t: np.array([[cy, cx], [cy - L * np.sin(np.radians(t)), cx + L * np.cos(np.radians(t))]])
         self.quads.data = []
         self.quads.add_lines([line(self.angle + 90 * k) for k in range(4)], edge_color="white", edge_width=1.2)
-        self.quads.add_lines([line(t) for t in self.spokes], edge_color="orange", edge_width=1.5)
+        self.quads.add_lines([line(t) for q, t in enumerate(self.spokes, 1) if q not in self.dropped],
+                             edge_color="orange", edge_width=1.5)
+        for q in sorted(self.dropped):          # a dropped quarter is shaded grey
+            a = np.radians(self.angle + 90 * (q - 1) + np.linspace(0, 90, 19))
+            wedge = np.r_[[[cy, cx]], np.c_[cy - L * np.sin(a), cx + L * np.cos(a)]]
+            self.quads.add_polygons([wedge], face_color=[0.5, 0.5, 0.5, 0.45], edge_color="transparent")
+        mid = np.radians(self.angle + 45 + 90 * np.arange(4))   # Q1-Q4 names, out near the root edge
+        self.qlab.data = np.c_[cy - 0.42 * L * np.sin(mid), cx + 0.42 * L * np.cos(mid)]
+        self.qlab.features = {"q": [f"Q{q}" + (" dropped" if q in self.dropped else "") for q in (1, 2, 3, 4)]}
+        self.qlab.text = {"string": "{q}", "color": "white", "size": 14}
         self.draw_profile(ft)
         per_q = ft.groupby("quadrant").file.max().reindex([1, 2, 3, 4]).fillna(0).astype(int) if len(ft) else [0] * 4
         self.info.value = (f"{self.i + 1}/{len(self.files)}  ·  {self.status}\n"
@@ -608,7 +621,16 @@ class Reviewer:
                 region[m] = 2
         elif t == "File path" and lbl:
             self._path_remove([lbl]) if remove or lbl in self.path_cells else self._path_add([lbl])
-        elif t == "Centre":                         # click = put the centre here, Cmd/Ctrl-click = back to automatic
+        elif t == "Centre":
+            # click = put the centre here; Cmd/Ctrl-click on the centre = back to automatic,
+            # anywhere else = drop that quarter from the results (again = bring it back)
+            cy, cx = self._centre()
+            if remove and np.hypot(y - cy, x - cx) > 0.04 * max(self.gray.shape):
+                q = int(P.quadrant_of(y, x, (cy, cx), self.angle))
+                self.dropped ^= {q}
+                self._refresh()
+                self.info.value += f"\nQ{q} " + ("dropped from the results." if q in self.dropped else "back in.")
+                return
             self.centre = None if remove else (float(y), float(x))
             props, _, _ = P.derive(cells, region, mx, self.angle, self._centre())
             self.spokes, self.path_q, self.path_cells = P.auto_paths(cells, region, props, self.angle, self._centre())

@@ -47,7 +47,8 @@ COLUMNS = {
     "file": "cell file number on the spoke: 1 = next to the stele",
     "rel_position": "(file - 0.5) / n_files_quadrant: 0 = stele side, 1 = epidermis side",
     "label": "cell number inside the image's mask",
-    "tissue": "cortex | stele | epidermis | air_space | metaxylem | unassigned",
+    "tissue": "cortex | stele | epidermis | air_space | metaxylem | unassigned | cortex_dropped (in a dropped quarter)",
+    "dropped_quarters": "quarters left out by hand (damaged tissue): no files or cortical cell sizes from them",
     "ring": "adjacency steps from the stele (a gap check; runs high)",
     "x": "cell centre, pixels from the left", "y": "cell centre, pixels from the top",
     "angle_rad": "direction of the cell centre from the centre, counter-clockwise from the right (radians)",
@@ -148,13 +149,17 @@ def main(anatomy_dir: Path):
         centre = P.centre_of(region, P.load_centre(f))
         props, mxp, tr = P.derive(cells, region, mx, angle, centre)
         paths = P.load_paths(f) or P.auto_paths(cells, region, props, angle, centre)
-        ft = P.file_table(cells, region, props, paths[1], paths[2])
+        dropped = P.load_dropped(f)
+        props = P.drop_quarters(props, dropped)
+        ft = P.file_table(cells, region, props, paths[1], paths[2], dropped)
         s = samples.at[rel, "um_per_px"]
         s = float(s) if pd.notna(s) else np.nan
         meta = {"image_file": rel, "plant": samples.at[rel, "plant"], **{g: samples.at[rel, g] for g in groups}}
 
         nq = ft.groupby("quadrant").file.max().reindex([1, 2, 3, 4]) if len(ft) else pd.Series([np.nan] * 4, index=[1, 2, 3, 4])
         tr = {k: v for k, v in tr.items() if not k.startswith(("n_cortical_layers", "n_layers"))}
+        tr["n_cortex_cells"] = int((props.tissue == "cortex").sum())
+        tr["dropped_quarters"] = " ".join(f"Q{q}" for q in sorted(dropped))
         tr["mean_cortex_cell_area_px"] = float(props.area_px[props.tissue == "cortex"].mean()) if len(props) else np.nan
         img_rows.append({**meta, "tech_rep": int(tech_rep[rel]), "status": status, "um_per_px": s,
                          "n_files": float(nq.median()), **{f"n_files_q{q}": nq[q] for q in (1, 2, 3, 4)}, **tr,

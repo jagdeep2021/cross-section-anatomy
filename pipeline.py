@@ -395,12 +395,12 @@ def load_paths(npz_path):
     return z["spokes"], z["path_q"], z["path_cells"]
 
 
-def file_table(cells, region, props, path_q, path_cells) -> pd.DataFrame:
+def file_table(cells, region, props, path_q, path_cells, dropped=()) -> pd.DataFrame:
     """One row per path cell: quadrant, file (1 = next to the stele), size, radial position."""
     p = props.set_index("label")
     # the user's choice wins: any cell except stele and air spaces (auto paths only take cortex)
     keep = [(int(q), int(c)) for q, c in zip(path_q, path_cells)
-            if c in p.index and p.at[c, "tissue"] not in ("stele", "air_space")]
+            if int(q) not in dropped and c in p.index and p.at[c, "tissue"] not in ("stele", "air_space")]
     if not keep:
         return pd.DataFrame(columns=["quadrant", "file", "label"])
     t = pd.DataFrame(keep, columns=["quadrant", "label"]).drop_duplicates("label")
@@ -454,6 +454,20 @@ def load_centre(npz_path):
     """The quadrant centre the user set (y, x), or None: then the stele centroid is used."""
     z = np.load(npz_path, allow_pickle=False)
     return tuple(z["centre"]) if "centre" in z else None
+
+
+def load_dropped(npz_path) -> tuple:
+    """Quarters the user dropped (damaged tissue): left out of files and cortical cell sizes."""
+    z = np.load(npz_path, allow_pickle=False)
+    return tuple(int(q) for q in z["dropped_q"]) if "dropped_q" in z else ()
+
+
+def drop_quarters(props, dropped):
+    """Cortical cells in a dropped quarter become tissue 'cortex_dropped' (kept in all_cells, out of the means)."""
+    if dropped and len(props):
+        props = props.copy()
+        props.loc[props.quadrant.isin(dropped) & (props.tissue == "cortex"), "tissue"] = "cortex_dropped"
+    return props
 
 
 def load_state(npz_path):
