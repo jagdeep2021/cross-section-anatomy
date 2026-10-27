@@ -83,10 +83,12 @@ def main():
         t = time.time()
         gray, cells, region, mx = P.propose(image_dir / rel, s.get("diameter"))
         bar = scale_bar_px(image_dir / rel) if s.get("scale_bar_um") else 0
-        P.save_state(npz, cells, region, mx, status="auto", image_file=str(rel), scale_bar_px=bar)
-        props, _, tr = P.derive(cells, region, mx)
+        props, _, tr = P.derive(cells, region, mx, s.get("quadrant_angle_deg", 0))
+        spokes, pq, pc = P.auto_paths(cells, region, props, s.get("quadrant_angle_deg", 0))
+        P.save_state(npz, cells, region, mx, status="auto", image_file=str(rel), scale_bar_px=bar,
+                     spokes=spokes, path_q=pq, path_cells=pc)
         P.qc_png(gray, cells, region, mx, props, tr, out / "qc" / f"{key}.png", str(rel))
-        print(f"[{i}/{len(imgs)}] {rel}  layers={tr['n_cortical_layers']} mx={tr['mx_n']} bar={bar}px  {time.time() - t:.0f}s", flush=True)
+        print(f"[{i}/{len(imgs)}] {rel}  files={'/'.join(str(int((pq == q).sum())) for q in (1, 2, 3, 4))} mx={tr['mx_n']} bar={bar}px  {time.time() - t:.0f}s", flush=True)
 
 
 if __name__ == "__main__":

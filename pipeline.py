@@ -252,20 +252,149 @@ def derive(cells: np.ndarray, region: np.ndarray, mx: np.ndarray, angle_deg: flo
                                             np.where(props.label.isin(layer.keys()), "cortex", "unassigned"))))
         props["layer"] = props.label.map(layer)
         props["quadrant"] = quadrant_of(props.y, props.x, centre_of(region), angle_deg)
+        props = props.join(radial_position(props, region, centre_of(region)))
     mxp = pd.DataFrame(measure.regionprops_table(mx, properties=("label", "area"))) if mx.any() else pd.DataFrame(columns=["label", "area"])
     traits = {
         "root_area_px": int(root.sum()),
         "stele_area_px": int(stele.sum()),
         "cortex_area_px": int(root.sum() - stele.sum()),
-        "n_cortical_layers": int(props.layer.max()) if props.layer.notna().any() else 0,
+        "n_cortical_layers": float(np.median([np.median([ray_layers(cells, region, props, centre_of(region), t) for t in ts])
+                                              for ts in quadrant_rays(angle_deg).values()])) if len(props) else 0,
+        "n_layers_ring": int(props.layer.max()) if props.layer.notna().any() else 0,
         "n_cortex_cells": int((props.tissue == "cortex").sum()),
         "n_air_spaces": int((props.tissue == "air_space").sum()),
         "air_space_total_area_px": int(props.area_px[props.tissue == "air_space"].sum()),
+        "cortex_width_px": float(np.mean(np.subtract(*radial_profile(region, centre_of(region))[::-1]))),
         "mx_n": int(len(mxp)),
         "mx_mean_area_px": float(mxp.area.mean()) if len(mxp) else np.nan,
         "mx_total_area_px": int(mxp.area.sum()) if len(mxp) else 0,
     }
     return props, mxp.rename(columns={"area": "area_px"}), traits
+
+
+def radial_profile(region: np.ndarray, centre, n_angles: int = 360):
+    """Stele and root radius (px) at each whole degree, measured from the centre."""
+    t = np.radians(np.arange(n_angles) * 360 / n_angles)
+    r = np.arange(0, max(region.shape))
+    y = np.round(centre[0] - np.outer(np.sin(t), r)).astype(int)
+    x = np.round(centre[1] + np.outer(np.cos(t), r)).astype(int)
+    ok = (y >= 0) & (y < region.shape[0]) & (x >= 0) & (x < region.shape[1])
+    v = np.where(ok, region[y.clip(0, region.shape[0] - 1), x.clip(0, region.shape[1] - 1)], 0)
+    last = lambda m: np.where(m.any(1), m.shape[1] - 1 - np.argmax(m[:, ::-1], 1), 0)
+    return last(v == 2).astype(float), last(v >= 1).astype(float)
+
+
+def radial_position(props: pd.DataFrame, region: np.ndarray, centre) -> pd.DataFrame:
+    """r_norm: 0 at the stele edge, 1 at the root edge, along each cell's own direction."""
+    r_st, r_rt = radial_profile(region, centre)
+    dy, dx = -(props.y - centre[0]), props.x - centre[1]
+    deg = np.mod(np.round(np.degrees(np.arctan2(dy, dx))), 360).astype(int)
+    r = np.hypot(dy, dx)
+    width = np.maximum(r_rt[deg] - r_st[deg], 1)
+    return pd.DataFrame({"r_norm": (r - r_st[deg]) / width, "dist_from_stele_px": r - r_st[deg],
+                         "cortex_width_px": width}, index=props.index)
+
+
+RAY_OFFSETS = (-20, -10, 0, 10, 20)   # degrees around each quadrant's centre line
+
+
+def ray_layers(cells, region, props, centre, theta_deg: float) -> int:
+    """Distinct cortical cells crossed by one ray from the centre to the root edge."""
+    cortex = set(props.label[props.tissue == "cortex"])
+    t = np.radians(theta_deg)
+    r = np.arange(0, max(cells.shape))
+    y = np.round(centre[0] - r * np.sin(t)).astype(int)
+    x = np.round(centre[1] + r * np.cos(t)).astype(int)
+    ok = (y >= 0) & (y < cells.shape[0]) & (x >= 0) & (x < cells.shape[1])
+    seen = []
+    for lbl in cells[y[ok], x[ok]]:
+        if lbl in cortex and (not seen or seen[-1] != lbl):
+            seen.append(int(lbl))
+    return len(set(seen))
+
+
+def quadrant_rays(angle_deg: float = 0):
+    """{quadrant: [ray angles]}; image-axis angles, counter-clockwise from the right."""
+    return {k: [angle_deg + 45 + 90 * (k - 1) + o for o in RAY_OFFSETS] for k in (1, 2, 3, 4)}
+
+
+# ---------------------------------------------------------------- file paths (cell size by file)
+# One spoke per quadrant; the cells along it, ordered from the stele out, are files 1..n.
+# The spoke is picked where the cortex is most complete; the user can re-pick it and add or
+# remove cells (the path may zig-zag). Stored per image as spokes (4,), path_q, path_cells.
+
+PATH_TISSUES = ("cortex", "unassigned")   # cells a path may hold (air spaces, stele, epidermis never)
+
+
+def _ray(shape, centre, theta_deg, r0=0.0, r1=None, step=0.5):
+    t = np.radians(theta_deg)
+    r = np.arange(r0, r1 if r1 is not None else max(shape), step)
+    y = np.round(centre[0] - r * np.sin(t)).astype(int)
+    x = np.round(centre[1] + r * np.cos(t)).astype(int)
+    ok = (y >= 0) & (y < shape[0]) & (x >= 0) & (x < shape[1])
+    return y[ok], x[ok]
+
+
+def path_along(cells, region, props, theta_deg, min_frac=0.3) -> list[int]:
+    """Cells a spoke really crosses (>= min_frac of the cell's minor axis), stele -> edge."""
+    ok = props[props.tissue.isin(PATH_TISSUES)].set_index("label")
+    y, x = _ray(cells.shape, centre_of(region), theta_deg)
+    run: dict[int, float] = {}
+    for v in cells[y, x]:
+        if v in ok.index:
+            run[int(v)] = run.get(int(v), 0) + 0.5
+    return [v for v, L in run.items() if L >= min_frac * ok.at[v, "minor_px"]]
+
+
+def spoke_completeness(cells, region, props, theta_deg) -> float:
+    """Share of the spoke between stele edge and root edge that lies in cortical cells."""
+    centre = centre_of(region)
+    r_st, r_rt = radial_profile(region, centre)
+    d = int(np.mod(round(theta_deg), 360))
+    if r_rt[d] - r_st[d] < 10:
+        return 0.0
+    y, x = _ray(cells.shape, centre, theta_deg, r_st[d] + 2, r_rt[d] - 2)
+    good = set(props.label[props.tissue == "cortex"])
+    return float(np.isin(cells[y, x], list(good)).mean()) if len(y) else 0.0
+
+
+def best_spoke(cells, region, props, quadrant, angle_deg=0, margin=12, step=2) -> float:
+    lo = angle_deg + 90 * (quadrant - 1) + margin
+    cand = np.arange(lo, lo + 90 - 2 * margin + 1, step)
+    score = [spoke_completeness(cells, region, props, t) - 0.001 * abs(t - (lo - margin + 45)) for t in cand]
+    return float(cand[int(np.argmax(score))])
+
+
+def auto_paths(cells, region, props, angle_deg=0):
+    spokes = np.array([best_spoke(cells, region, props, q, angle_deg) for q in (1, 2, 3, 4)])
+    pq, pc = [], []
+    for q, t in zip((1, 2, 3, 4), spokes):
+        for lbl in path_along(cells, region, props, t):
+            pq.append(q)
+            pc.append(lbl)
+    return spokes, np.array(pq, np.int16), np.array(pc, np.int32)
+
+
+def load_paths(npz_path):
+    z = np.load(npz_path, allow_pickle=False)
+    if "spokes" not in z:
+        return None
+    return z["spokes"], z["path_q"], z["path_cells"]
+
+
+def file_table(cells, region, props, path_q, path_cells) -> pd.DataFrame:
+    """One row per path cell: quadrant, file (1 = next to the stele), size, radial position."""
+    p = props.set_index("label")
+    # the user's choice wins: any cell except stele and air spaces (auto paths only take cortex)
+    keep = [(int(q), int(c)) for q, c in zip(path_q, path_cells)
+            if c in p.index and p.at[c, "tissue"] not in ("stele", "air_space")]
+    if not keep:
+        return pd.DataFrame(columns=["quadrant", "file", "label"])
+    t = pd.DataFrame(keep, columns=["quadrant", "label"]).drop_duplicates("label")
+    t = t.join(p[["area_px", "major_px", "minor_px", "r_norm", "dist_from_stele_px"]], on="label")
+    t = t.sort_values(["quadrant", "dist_from_stele_px"])
+    t["file"] = t.groupby("quadrant").cumcount() + 1
+    return t[["quadrant", "file", "label", "area_px", "major_px", "minor_px", "r_norm", "dist_from_stele_px"]]
 
 
 def quadrant_traits(cells, region, mx, props, angle_deg: float = 0) -> pd.DataFrame:
@@ -279,11 +408,14 @@ def quadrant_traits(cells, region, mx, props, angle_deg: float = 0) -> pd.DataFr
         c = props[(props.get("quadrant") == k) & (props.tissue == "cortex")] if len(props) else props
         a = props[(props.get("quadrant") == k) & (props.tissue == "air_space")] if len(props) else props
         mq = mxp[quadrant_of(mxp["centroid-0"], mxp["centroid-1"], centre, angle_deg) == k] if mxp is not None else []
+        rays = [ray_layers(cells, region, props, centre, t) for t in quadrant_rays(angle_deg)[k]] if len(props) else [0]
         rows.append({"quadrant": k,
+                     "n_layers_ray": float(np.median(rays)),
+                     "n_layers_ray_min": int(min(rays)), "n_layers_ray_max": int(max(rays)),
                      "root_area_px": int((inq & (region >= 1)).sum()),
                      "stele_area_px": int((inq & (region == 2)).sum()),
                      "cortex_area_px": int((inq & (region == 1)).sum()),
-                     "n_cortical_layers": int(c.layer.max()) if len(c) else 0,
+                     "n_layers_ring": int(c.layer.max()) if len(c) else 0,
                      "n_cortex_cells": len(c),
                      "mean_cortex_cell_area_px": float(c.area_px.mean()) if len(c) else np.nan,
                      "n_air_spaces": len(a),
