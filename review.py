@@ -43,7 +43,7 @@ from magicgui.widgets import ComboBox, Container, FloatSlider, FloatSpinBox, Lab
 from napari.qt.threading import thread_worker
 from napari.utils.colormaps import DirectLabelColormap
 from qtpy.QtCore import QEvent, QSize, Qt
-from qtpy.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QScrollArea, QWidget
+from qtpy.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QScrollArea, QSizePolicy, QWidget
 from scipy import ndimage as ndi
 from skimage.draw import polygon as fill_polygon
 
@@ -54,6 +54,9 @@ import run_batch as RB
 import summarise as SUM
 
 TARGETS = {"Cell": "yellow", "Metaxylem": "red", "Stele": "cyan", "File path": "orange"}
+# the layers each editing target owns: the opacity slider acts on these only
+TARGET_LAYERS = {"Cell": ("cells", "air"), "Metaxylem": ("mx",), "Stele": ("region",),
+                 "File path": ("path", "nums", "quads")}
 CMD = "⌘" if sys.platform == "darwin" else "Ctrl"   # napari's "Control" is Cmd on a Mac
 _KEYS = [("Click", "add"), (f"{CMD}-click", "remove (stele: the whole stele)"), ("Shift-drag", "draw outline, add"),
          (f"{CMD}-Shift-drag", "draw outline, remove"), ("Drag / scroll", "move / zoom"),
@@ -287,7 +290,9 @@ class Reviewer:
         self.img_op.changed.connect(lambda v: "image" in self.viewer.layers and
                                     setattr(self.viewer.layers["image"], "opacity", v))
         self.ov_op = FloatSlider(value=1.0, min=0, max=1.0, step=0.05, readout=False)
-        self.ov_op.changed.connect(lambda v: self._apply_overlays())
+        self.level = {t: 1.0 for t in TARGETS}  # opacity of each target's layers, remembered across images
+        self.hidden = False                      # Shift-H
+        self.ov_op.changed.connect(self._set_level)
         for s_ in (self.img_op, self.ov_op):
             s_.native.setFixedWidth(70)
         prev, nxt, save = PushButton(text="<"), PushButton(text=">"), PushButton(text="Save + next")
@@ -315,8 +320,8 @@ class Reviewer:
         bar = WrapBar([group(opn, summ),
                        group("µm/px", self.scale, self.scale_grp, scale_img),
                        group(self.pick, prev, nxt, save),
-                       group("editing", self.target_box),
-                       group("image", self.img_op, "outlines", self.ov_op)])
+                       group("editing", self.target_box, "opacity", self.ov_op),
+                       group("image", self.img_op)])
         bar.dock = self.viewer.window.add_dock_widget(bar, area="top", name="Controls")
         bar.dock.setTitleBarWidget(QWidget())    # no close button: the bar can't be lost by accident
         bar.dock.setFixedHeight(bar.height() + 4)
@@ -333,8 +338,10 @@ class Reviewer:
         self.canvas.setMinimumHeight(300)
         lay = self.dock.native.layout()
         lay.setSpacing(4)
-        lay.addWidget(self.canvas, stretch=1)            # the graphs take all the spare height
-        lay.addWidget(help_lbl)
+        lay.insertWidget(0, help_lbl)                    # keys on top, graphs, then the image's numbers + progress
+        for w in (self.info.native, self.info.native.parentWidget()):   # magicgui wraps the label: widen both
+            w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        lay.insertWidget(1, self.canvas, stretch=1)      # the graphs take all the spare height
         scroll = QScrollArea()                   # a short screen scrolls the panel instead of cutting it off
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -364,23 +371,27 @@ class Reviewer:
         self.target = t
         with self.target_box.changed.blocked():
             self.target_box.value = t
+        with self.ov_op.changed.blocked():
+            self.ov_op.value = self.level[t]
         if hasattr(self, "tag"):
             self.tag.text = {"string": t, "color": TARGETS[t], "size": 11, "translation": [-14, 0]}
 
     def toggle_overlays(self):
-        if self.i is None:
-            return
-        if self.ov_op.value > 0:
-            self._ov_last, self.ov_op.value = self.ov_op.value, 0
-        else:
-            self.ov_op.value = getattr(self, "_ov_last", 1.0)
+        self.hidden = not self.hidden
+        self._apply_overlays()
+
+    def _set_level(self, v):
+        self.level[self.target] = v
+        self._apply_overlays()
 
     def _apply_overlays(self):
         if self.i is None:
             return
-        a = self.ov_op.value
-        for lyr, base in self._base.items():
-            lyr.opacity, lyr.visible = base * a, a > 0
+        for t, names in TARGET_LAYERS.items():
+            a = 0 if self.hidden else self.level[t]
+            for name in names:
+                lyr = getattr(self, name)
+                lyr.opacity, lyr.visible = self._base[lyr] * a, a > 0
 
     def _choices(self):
         return [f.stem + ("  ✓" if P.load_state(f)[3] == "reviewed" else "") for f in self.files]
@@ -413,7 +424,7 @@ class Reviewer:
         self.tag = v.add_points(np.empty((0, 2)), name="cursor", size=0)
         for lyr in v.layers[1:]:
             lyr.editable = False
-        self._base = {lyr: lyr.opacity for lyr in v.layers[1:] if lyr is not self.tag}   # each layer's full strength
+        self._base = {lyr: lyr.opacity for lyr in v.layers[1:]}   # each layer's full strength
         self._apply_overlays()
         v.layers.selection.active = self.cells
         props, _, _ = P.derive(cells, region, mx, self.angle)
