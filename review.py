@@ -234,7 +234,7 @@ class Reviewer:
         summ.changed.connect(self.summarise)
         self.scale = FloatSpinBox(value=0, min=0, max=1000, step=0.0001, label="um / pixel")
         self.scale.native.setDecimals(4)
-        self.scale_grp, scale_img = PushButton(text="Set for this group"), PushButton(text="This image")
+        self.scale_grp, scale_img = PushButton(text="All"), PushButton(text="This image")
         self.scale_grp.changed.connect(lambda: self.set_scale(True))
         scale_img.changed.connect(lambda: self.set_scale(False))
         self.pick = ComboBox(choices=[], label="image")
@@ -248,8 +248,8 @@ class Reviewer:
         self.ov_op = FloatSlider(value=1.0, min=0, max=1.0, step=0.05, readout=False)
         self.ov_op.changed.connect(lambda v: self._apply_overlays())
         for s_ in (self.img_op, self.ov_op):
-            s_.native.setFixedWidth(90)
-        prev, nxt, save = PushButton(text="< Prev"), PushButton(text="Next >"), PushButton(text="Save + next")
+            s_.native.setFixedWidth(70)
+        prev, nxt, save = PushButton(text="<"), PushButton(text=">"), PushButton(text="Save + next")
         prev.changed.connect(lambda: self.step(-1))
         nxt.changed.connect(lambda: self.step(1))
         save.changed.connect(self.save_next)
@@ -260,9 +260,9 @@ class Reviewer:
         bar = QWidget()                          # a plain Qt row: tight enough for a laptop screen
         hb = QHBoxLayout(bar)
         hb.setContentsMargins(6, 3, 6, 3)
-        hb.setSpacing(8)
-        self.pick.native.setMinimumContentsLength(16)
-        self.scale.native.setMinimumWidth(140)
+        hb.setSpacing(6)
+        self.pick.native.setMinimumContentsLength(10)
+        self.scale.native.setMinimumWidth(120)
         self.scale.native.lineEdit().setMinimumWidth(70)    # room for all 4 decimals (0.7194)
 
         def group(*items):                       # controls that belong together share one outlined box
@@ -276,7 +276,7 @@ class Reviewer:
                 gl.addWidget(QLabel(w) if isinstance(w, str) else w.native)
             hb.addWidget(box)
         group(opn, summ)
-        group("scale (um / pixel)", self.scale, self.scale_grp, scale_img)
+        group("µm/px", self.scale, self.scale_grp, scale_img)
         group(self.pick, prev, nxt, save)
         group("editing", self.target_box)
         group("image", self.img_op, "outlines", self.ov_op)
@@ -385,7 +385,7 @@ class Reviewer:
         um = P.um_per_px(self.dir, self.rel)
         with self.scale.changed.blocked():
             self.scale.value = 0 if np.isnan(um) else um
-        self.scale_grp.text = f"Set for all {self.rel.split('/')[0]}" if "/" in self.rel else "Set for all"
+        self.scale_grp.text = f"All {self.rel.split('/')[0]}" if "/" in self.rel else "All"
         with self.pick.changed.blocked():
             self.pick.choices = self._choices()
             self.pick.value = self._choices()[i]
