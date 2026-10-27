@@ -2,9 +2,9 @@
 
   python review.py [<anatomy_dir>]
 
-Buttons:  Measure images...  pick the folder of images; every image is outlined (anatomy/ is made next
-                             to that folder); progress shows in the panel. Stop/resume any time.
-          Open...            an experiment measured before (its folder or its anatomy folder)
+Buttons:  Open folder...     the experiment folder, its raw/ (images) or anatomy/. Images not measured yet
+                             are outlined first (anatomy/ next to the images; progress in the panel;
+                             stop/resume any time), then they open.
           um / pixel         the scale: always typed by you (scale bars are not read)
           Summarise          tables + figures -> results/ next to anatomy/
 
@@ -42,7 +42,7 @@ from matplotlib.figure import Figure
 from magicgui.widgets import CheckBox, ComboBox, Container, FloatSlider, FloatSpinBox, Label, PushButton
 from napari.qt.threading import thread_worker
 from napari.utils.colormaps import DirectLabelColormap
-from qtpy.QtWidgets import QFileDialog
+from qtpy.QtWidgets import QFileDialog, QMessageBox
 from scipy import ndimage as ndi
 from skimage.draw import polygon as fill_polygon
 
@@ -71,14 +71,15 @@ class Reviewer:
         if anatomy_dir:
             self.load_experiment(anatomy_dir)
         else:
-            self.info.value = "Start: Measure images... (new images) or Open... (measured before)."
+            self.info.value = ("Start: Open folder... and pick the experiment folder (or its raw folder). "
+                               "Images not measured yet are measured first.")
 
     def load_experiment(self, d):
         d = Path(d)
         if not (d / "settings.json").exists() and (d / "anatomy" / "settings.json").exists():
             d = d / "anatomy"                          # the experiment folder was picked
         if not (d / "settings.json").exists():
-            self.info.value = f"No measurements in {d}. Use Measure images... first."
+            self.info.value = f"No measurements in {d}. Use Open folder... on the experiment or raw folder."
             return
         self.dir = d
         self.settings = json.loads((d / "settings.json").read_text())
@@ -96,42 +97,99 @@ class Reviewer:
 
     # ---------------------------------------------------------- measure / scale / summarise
     def _folder(self, title):
-        return QFileDialog.getExistingDirectory(self.dock.native, title) or None
+        start = str(self.dir.parent) if self.dir is not None else str(Path.home())
+        return QFileDialog.getExistingDirectory(self.dock.native, title, start) or None
 
-    def _run(self, work, done):
-        """Run a slow job in the background; the panel shows its progress lines."""
+    def _run(self, work, done, progress=None):
+        """Run a slow job in the background; the panel shows its progress."""
         if self.busy:
+            self.info.value = "Busy: wait until the current job is done."
             return
         self.busy = True
         w = work()
-        w.yielded.connect(lambda m: setattr(self.info, "value", m))
+        w.yielded.connect(progress or (lambda m: setattr(self.info, "value", m)))
         w.returned.connect(lambda res: (setattr(self, "busy", False), done(res)))
-        w.errored.connect(lambda e: (setattr(self, "busy", False), setattr(self.info, "value", f"Stopped: {e}")))
+        w.errored.connect(lambda e: (setattr(self, "busy", False), self._error(e)))
         w.start()
 
-    def measure(self):
-        d = self._folder("Choose the folder with the images (e.g. raw)")
+    def open_folder(self):
+        """One button for everything: pick the experiment folder, its raw/ (images) or its anatomy/.
+        Images not measured yet are measured first (resumes where it stopped), then the images open."""
+        d = self._folder("Choose the experiment folder (or its raw or anatomy folder)")
         if not d:
             return
+        self.info.value = f"Looking in {d} ..."
+        anatomy, images = RB.locate(d)
+        if images is None and anatomy is None:
+            self.info.value = (f"No images found in\n{d}\nPick the folder that holds the images "
+                               f"({', '.join(P.IMAGE_EXT)}) or the experiment folder above it.")
+            return
+        todo = RB.n_to_measure(images, anatomy) if images is not None else 0
+        if todo == 0:
+            return self.load_experiment(anatomy)
+        ok = QMessageBox.question(self.dock.native, "Measure images",
+                                  f"Measure {todo} image(s) in\n{images}\n\nResults go to\n{anatomy}\n\n"
+                                  "Each image takes about 10 s to 2 min. Images appear as they are done.")
+        if ok != QMessageBox.StandardButton.Yes:
+            self.info.value = "Cancelled."
+            return
+        if (anatomy / "settings.json").exists():
+            self.load_experiment(anatomy)            # show what is measured already while the rest runs
 
         @thread_worker
         def work():
-            gen = RB.batch(d)
+            yield (f"{todo} image(s) to measure in\n{images}\nLoading the outlining model (the first time "
+                   f"this downloads ~1 GB: a few minutes)...")
+            gen = RB.batch(images, anatomy)
             try:
                 while True:
                     i, n, line = next(gen)
-                    yield f"Measuring image {i} of {n}\n{line}\n(you can close the app; Measure again continues)"
+                    yield (i, n, f"Measuring image {i} of {n}\n{line}\n(you can close the app; Open folder "
+                                 f"continues where it stopped)")
             except StopIteration as stop:
                 return stop.value
 
-        self._run(work, lambda out: (self.load_experiment(out),
-                                     setattr(self.info, "value", self.info.value + "\n\nMeasured. Now type the "
-                                             "um / pixel scale, then Summarise.")))
+        def progress(msg):
+            if isinstance(msg, str):
+                self.info.value = msg
+                return
+            i, n, text = msg
+            self.viewer.title = f"Measuring {i} of {n} - Root cross-section anatomy"
+            self._add_new(anatomy)
+            self.info.value = text
 
-    def open_experiment(self):
-        d = self._folder("Choose the experiment folder (or its anatomy folder)")
-        if d:
-            self.load_experiment(d)
+        def done(out):
+            self.viewer.title = "Root cross-section anatomy"
+            self._add_new(out)
+            self.info.value = f"All {len(self.files)} images measured. Now type the um / pixel scale, then Summarise."
+
+        self._run(work, done, progress)
+
+    def _add_new(self, anatomy):
+        """Images measured so far appear in the list; the first one opens straight away."""
+        if self.dir is None or Path(anatomy).resolve() != self.dir.resolve():
+            if (Path(anatomy) / "settings.json").exists() and any((Path(anatomy) / "masks").glob("*.npz")):
+                self.load_experiment(anatomy)
+            return
+        files = sorted((self.dir / "masks").glob("*.npz"))
+        if len(files) != len(self.files):
+            cur = self.files[self.i] if self.i is not None else None
+            self.files = files
+            with self.pick.changed.blocked():
+                self.pick.choices = self._choices()
+                if cur is not None:
+                    self.i = files.index(cur)
+                    self.pick.value = self._choices()[self.i]
+            if cur is None:
+                self.open(0)
+
+    def _error(self, e):
+        import traceback
+        txt = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+        log = Path(__file__).with_name("app_log.txt")
+        log.write_text(txt)
+        print(txt, flush=True)
+        self.info.value = f"Stopped: {e}\n(details in {log.name} in the tool folder; send it to Jagdeep)"
 
     def set_scale(self, all_in_group: bool):
         if self.dir is None or self.i is None:
@@ -169,9 +227,8 @@ class Reviewer:
 
     # ---------------------------------------------------------- UI
     def _build_dock(self):
-        measure, opn, summ = PushButton(text="Measure images..."), PushButton(text="Open..."), PushButton(text="Summarise")
-        measure.changed.connect(self.measure)
-        opn.changed.connect(self.open_experiment)
+        opn, summ = PushButton(text="Open folder..."), PushButton(text="Summarise")
+        opn.changed.connect(self.open_folder)
         summ.changed.connect(self.summarise)
         self.scale = FloatSpinBox(value=0, min=0, max=1000, step=0.0001, label="um / pixel")
         self.scale.native.setDecimals(4)
@@ -183,7 +240,8 @@ class Reviewer:
         self.target_box = ComboBox(choices=list(TARGETS), value=self.target, label="editing")
         self.target_box.changed.connect(self.set_target)
         self.img_op = FloatSlider(value=1.0, min=0.1, max=1.0, step=0.05, label="image")
-        self.img_op.changed.connect(lambda v: setattr(self.viewer.layers["image"], "opacity", v))
+        self.img_op.changed.connect(lambda v: "image" in self.viewer.layers and
+                                    setattr(self.viewer.layers["image"], "opacity", v))
         self.show_rings = CheckBox(value=False, text="show rings (gap check)")
         self.show_rings.changed.connect(lambda v: setattr(self.rings, "visible", v))
         prev, nxt, save = PushButton(text="< Prev"), PushButton(text="Next >"), PushButton(text="Save + next")
@@ -193,7 +251,7 @@ class Reviewer:
         self.info = Label(value="")
         self.info.native.setMinimumHeight(70)
         row = lambda *w: Container(widgets=list(w), layout="horizontal", labels=False)
-        self.dock = Container(widgets=[row(measure, opn), self.scale, row(self.scale_grp, scale_img), summ,
+        self.dock = Container(widgets=[opn, self.scale, row(self.scale_grp, scale_img), summ,
                                        self.pick, self.target_box,
                                        Container(widgets=[prev, nxt], layout="horizontal", labels=False),
                                        save, self.img_op, self.show_rings, self.info, Label(value=HELP)])

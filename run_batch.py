@@ -42,6 +42,24 @@ def load_settings(out_dir: Path, image_dir: Path | None = None, **override) -> d
     return s
 
 
+def locate(folder):
+    """Any folder the user picks -> (anatomy_dir or None, image_dir or None).
+    Accepts the anatomy folder, the experiment folder (with anatomy/ and/or raw/), or a folder of images."""
+    d = Path(folder).resolve()
+    for a in (d, d / "anatomy"):
+        if (a / "settings.json").exists():
+            imgs = P.image_dir(a, json.loads((a / "settings.json").read_text()))
+            return a, (imgs if imgs.exists() else None)
+    for imgs in (d / "raw", d):
+        if imgs.is_dir() and list_images(imgs):
+            return imgs.parent / "anatomy", imgs
+    return None, None
+
+
+def n_to_measure(image_dir, anatomy_dir) -> int:
+    return sum(not (Path(anatomy_dir) / "masks" / f"{image_key(r)}.npz").exists() for r in list_images(Path(image_dir)))
+
+
 def batch(image_dir, out_dir=None, diameter=None, redo=False):
     """Outline every image; yields (i, n, line) per image so a caller can show progress.
     Writes samples.xlsx at the end. Returns (StopIteration value) the anatomy folder."""
