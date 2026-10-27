@@ -68,9 +68,9 @@ Everything else is derived by `derive()`, so the editor and the summary always a
   nothing counted twice). Metaxylem differs: a drawn vessel merges with any vessel it touches (vessels
   never touch, so overlap = same vessel; one count, union area), and clears cell pixels under it.
 - **Scale**: `settings.json:scale_bar_um` ÷ detected bar length (bottom-left bright run that is a thin line
-  on a dark background; runs inside tissue are rejected). Maize Ortiz images: 100 um = 139 px (0.719 um/px;
-  6 sibs images 111 px). The 8 grayscale shr images have no bar → left out of µm figures until a scale is
-  set. Setaria: no bar; 0.3584 um/px (Jagdeep 2026-10-27) in samples.xlsx.
+  on a dark background; runs inside tissue are rejected). `um_per_px` in samples.xlsx overrides it
+  (`pipeline.um_per_px`, used by the app and the summary). Ortiz images (Jagdeep 2026-10-27): all maize
+  one scale, 0.7194 um/px (100 um = 139 px); Setaria 0.3584 um/px; both set in samples.xlsx.
 - **Cortex pattern** (plan: `5_Projects/04_root_anatomy/01_Cortex patterning/6_cortical_radial_profile_analysis/`):
   two views on a 0-1 axis, stele → epidermis. *Along the spoke*: path cells, relative file position
   (file - 0.5) / files in the quarter. *All cortical cells*: r_norm of each cell's centroid, 10 bins; uses
