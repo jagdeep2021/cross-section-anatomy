@@ -55,6 +55,9 @@ import summarise as SUM
 _PAL = ["#3b4cc0", "#1f9e89", "#6ece58", "#fde725", "#f89540", "#e16462",
         "#b12a90", "#7e03a8", "#2c7fb8", "#7fcdbb", "#d95f0e", "#636363"]
 RING_COLORS = {k: _PAL[(k - 1) % len(_PAL)] for k in range(1, 41)}
+# what each "show" box controls (layer attribute names); rings off by default (a gap check only)
+VIEWS = {"cells": ("cells",), "stele": ("region",), "metaxylem": ("mx",), "file path": ("path", "nums"),
+         "air spaces": ("air",), "quarters": ("quads",), "rings": ("rings",)}
 TARGETS = {"Cell": "yellow", "Metaxylem": "red", "Stele": "cyan", "File path": "orange"}
 CMD = "⌘" if sys.platform == "darwin" else "Ctrl"   # napari's "Control" is Cmd on a Mac
 HELP = (f"click  add here\n{CMD}-click  remove\nShift-drag  draw outline → add\n{CMD}-Shift-drag  draw outline → remove\n"
@@ -242,8 +245,13 @@ class Reviewer:
         self.img_op = FloatSlider(value=1.0, min=0.1, max=1.0, step=0.05, label="image")
         self.img_op.changed.connect(lambda v: "image" in self.viewer.layers and
                                     setattr(self.viewer.layers["image"], "opacity", v))
-        self.show_rings = CheckBox(value=False, text="show rings (gap check)")
-        self.show_rings.changed.connect(lambda v: setattr(self.rings, "visible", v))
+        self.show = {k: CheckBox(value=k != "rings", text=k) for k in VIEWS}
+        for k, box in self.show.items():
+            box.changed.connect(lambda v, k=k: self._apply_view(k))
+        names = list(VIEWS)
+        show_grid = Container(widgets=[Label(value="show")] + [
+            Container(widgets=[self.show[a] for a in names[j:j + 2]], layout="horizontal", labels=False)
+            for j in range(0, len(names), 2)], labels=False)
         prev, nxt, save = PushButton(text="< Prev"), PushButton(text="Next >"), PushButton(text="Save + next")
         prev.changed.connect(lambda: self.step(-1))
         nxt.changed.connect(lambda: self.step(1))
@@ -254,11 +262,11 @@ class Reviewer:
         self.dock = Container(widgets=[opn, self.scale, row(self.scale_grp, scale_img), summ,
                                        self.pick, self.target_box,
                                        Container(widgets=[prev, nxt], layout="horizontal", labels=False),
-                                       save, self.img_op, self.show_rings, self.info, Label(value=HELP)])
+                                       save, self.img_op, show_grid, self.info, Label(value=HELP)])
         for w in self.dock:
             if isinstance(w, Label):
                 w.native.setWordWrap(True)
-        self.dock.native.setMaximumWidth(320)
+        self.dock.native.setMinimumWidth(240)   # no maximum: drag the panel edge to make it wider or narrower
         # live cortex pattern: cell size per quarter, by file and by distance from the stele
         self.fig = Figure(figsize=(3.2, 3.9), dpi=90, layout="constrained")
         self.prof_axes = self.fig.subplots(2, 1)
@@ -296,10 +304,16 @@ class Reviewer:
     def toggle_overlays(self):
         if self.i is None:
             return
-        over = [l for l in self.viewer.layers if l.name not in ("image", "cursor") and l is not self.rings]
-        show = not any(l.visible for l in over)
-        for l in over:
-            l.visible = show
+        show = not any(b.value for k, b in self.show.items() if k != "rings")
+        for k, b in self.show.items():
+            if k != "rings":
+                b.value = show
+
+    def _apply_view(self, k):
+        if self.i is None:
+            return
+        for name in VIEWS[k]:
+            getattr(self, name).visible = self.show[k].value
 
     def _choices(self):
         return [f.stem + ("  ✓" if P.load_state(f)[3] == "reviewed" else "") for f in self.files]
@@ -333,7 +347,8 @@ class Reviewer:
         self.tag = v.add_points(np.empty((0, 2)), name="cursor", size=0)
         for lyr in v.layers[1:]:
             lyr.editable = False
-        self.rings.visible = self.show_rings.value
+        for k in VIEWS:
+            self._apply_view(k)
         v.layers.selection.active = self.cells
         props, _, _ = P.derive(cells, region, mx, self.angle)
         saved = P.load_paths(f)
