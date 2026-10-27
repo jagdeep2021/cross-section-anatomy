@@ -42,8 +42,8 @@ from matplotlib.figure import Figure
 from magicgui.widgets import ComboBox, Container, FloatSlider, FloatSpinBox, Label, PushButton
 from napari.qt.threading import thread_worker
 from napari.utils.colormaps import DirectLabelColormap
-from qtpy.QtCore import Qt
-from qtpy.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QWidget
+from qtpy.QtCore import QEvent, QSize, Qt
+from qtpy.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QScrollArea, QWidget
 from scipy import ndimage as ndi
 from skimage.draw import polygon as fill_polygon
 
@@ -62,6 +62,47 @@ _KEYS = [("Click", "add"), (f"{CMD}-click", "remove (stele: the whole stele)"), 
 HELP = ("<table cellspacing='0' cellpadding='2' style='font-size:12px'>" +
         "".join(f"<tr><td style='color:#ffd479; padding-right:10px'><b>{k}</b></td><td>{v}</td></tr>"
                 for k, v in _KEYS) + "</table>")
+
+
+class WrapBar(QWidget):
+    """The top bar: its boxes sit in one row, and move to the next row when the window is too narrow."""
+    GAP = 6
+
+    def __init__(self, boxes):
+        super().__init__()
+        self.boxes, self.dock = boxes, None
+        for b in boxes:
+            b.setParent(self)
+
+    def _place(self, width):
+        x = y = row_h = 0
+        for b in self.boxes:
+            s = b.sizeHint()
+            if x and x + s.width() > width - 2 * self.GAP:
+                x, y, row_h = 0, y + row_h + self.GAP, 0
+            b.setGeometry(self.GAP + x, self.GAP // 2 + y, s.width(), s.height())
+            x += s.width() + self.GAP
+            row_h = max(row_h, s.height())
+        h = y + row_h + self.GAP
+        if h != self.height():
+            self.setFixedHeight(h)
+            if self.dock is not None:            # napari's dock would otherwise stretch far past the bar
+                self.dock.setFixedHeight(h + 4)
+
+    def resizeEvent(self, e):
+        self._place(e.size().width())
+        super().resizeEvent(e)
+
+    def event(self, e):                          # a box changed size (e.g. "All Maize" -> "All Setaria")
+        if e.type() == QEvent.Type.LayoutRequest:
+            self._place(self.width())
+        return super().event(e)
+
+    def minimumSizeHint(self):
+        return QSize(max(b.sizeHint().width() for b in self.boxes) + 2 * self.GAP, self.height())
+
+    def sizeHint(self):
+        return QSize(sum(b.sizeHint().width() + self.GAP for b in self.boxes) + self.GAP, self.height())
 
 
 class Reviewer:
@@ -257,10 +298,6 @@ class Reviewer:
         self.info.native.setMinimumHeight(54)
         # Top bar: every control, left to right in the order of the work (the run and its scale | the image |
         # editing it). Right panel: what you look at (the numbers, the cortex pattern, what is shown, the keys).
-        bar = QWidget()                          # a plain Qt row: tight enough for a laptop screen
-        hb = QHBoxLayout(bar)
-        hb.setContentsMargins(6, 3, 6, 3)
-        hb.setSpacing(6)
         self.pick.native.setMinimumContentsLength(10)
         self.scale.native.setMinimumWidth(120)
         self.scale.native.lineEdit().setMinimumWidth(70)    # room for all 4 decimals (0.7194)
@@ -274,14 +311,15 @@ class Reviewer:
             gl.setSpacing(4)
             for w in items:
                 gl.addWidget(QLabel(w) if isinstance(w, str) else w.native)
-            hb.addWidget(box)
-        group(opn, summ)
-        group("µm/px", self.scale, self.scale_grp, scale_img)
-        group(self.pick, prev, nxt, save)
-        group("editing", self.target_box)
-        group("image", self.img_op, "outlines", self.ov_op)
-        hb.addStretch(1)
-        self.viewer.window.add_dock_widget(bar, area="top", name="Controls")
+            return box
+        bar = WrapBar([group(opn, summ),
+                       group("µm/px", self.scale, self.scale_grp, scale_img),
+                       group(self.pick, prev, nxt, save),
+                       group("editing", self.target_box),
+                       group("image", self.img_op, "outlines", self.ov_op)])
+        bar.dock = self.viewer.window.add_dock_widget(bar, area="top", name="Controls")
+        bar.dock.setTitleBarWidget(QWidget())    # no close button: the bar can't be lost by accident
+        bar.dock.setFixedHeight(bar.height() + 4)
         help_lbl = QLabel(HELP)
         help_lbl.setTextFormat(Qt.TextFormat.RichText)
         self.dock = Container(widgets=[self.info])
@@ -292,12 +330,16 @@ class Reviewer:
         self.fig = Figure(figsize=(3.2, 3.9), dpi=90, layout="constrained")
         self.prof_axes = self.fig.subplots(2, 1)
         self.canvas = FigureCanvasQTAgg(self.fig)
-        self.canvas.setMinimumHeight(380)
+        self.canvas.setMinimumHeight(300)
         lay = self.dock.native.layout()
         lay.setSpacing(4)
         lay.addWidget(self.canvas, stretch=1)            # the graphs take all the spare height
         lay.addWidget(help_lbl)
-        self.viewer.window.add_dock_widget(self.dock, area="right", name="Cortex pattern")
+        scroll = QScrollArea()                   # a short screen scrolls the panel instead of cutting it off
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(self.dock.native)
+        self.viewer.window.add_dock_widget(scroll, area="right", name="Cortex pattern")
         qv = self.viewer.window._qt_viewer   # napari's own layer panels are not needed
         for d in (qv.dockLayerList, qv.dockLayerControls):
             d.setVisible(False)
