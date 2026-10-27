@@ -39,11 +39,11 @@ import napari
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from magicgui.widgets import CheckBox, ComboBox, Container, FloatSlider, FloatSpinBox, Label, PushButton
+from magicgui.widgets import ComboBox, Container, FloatSlider, FloatSpinBox, Label, PushButton
 from napari.qt.threading import thread_worker
 from napari.utils.colormaps import DirectLabelColormap
 from qtpy.QtCore import Qt
-from qtpy.QtWidgets import QFileDialog, QGridLayout, QLabel, QMessageBox, QWidget
+from qtpy.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QMessageBox, QWidget
 from scipy import ndimage as ndi
 from skimage.draw import polygon as fill_polygon
 
@@ -53,18 +53,12 @@ import pipeline as P
 import run_batch as RB
 import summarise as SUM
 
-_PAL = ["#3b4cc0", "#1f9e89", "#6ece58", "#fde725", "#f89540", "#e16462",
-        "#b12a90", "#7e03a8", "#2c7fb8", "#7fcdbb", "#d95f0e", "#636363"]
-RING_COLORS = {k: _PAL[(k - 1) % len(_PAL)] for k in range(1, 41)}
-# what each "show" box controls (layer attribute names); rings off by default (a gap check only)
-VIEWS = {"cells": ("cells",), "stele": ("region",), "metaxylem": ("mx",), "file path": ("path", "nums"),
-         "air spaces": ("air",), "quarters": ("quads",), "rings": ("rings",)}
 TARGETS = {"Cell": "yellow", "Metaxylem": "red", "Stele": "cyan", "File path": "orange"}
 CMD = "⌘" if sys.platform == "darwin" else "Ctrl"   # napari's "Control" is Cmd on a Mac
 _KEYS = [("Click", "add"), (f"{CMD}-click", "remove (stele: the whole stele)"), ("Shift-drag", "draw outline, add"),
          (f"{CMD}-Shift-drag", "draw outline, remove"), ("Drag / scroll", "move / zoom"),
          ("Alt-click", "move spoke (file path)"), ("1 2 3 4", "cell, metaxylem, stele, file path"),
-         ("Shift-H", "hide / show all"), ("Shift-S", "save + next"), (", .", "previous / next image")]
+         ("Shift-H", "hide / show outlines"), ("Shift-S", "save + next"), (", .", "previous / next image")]
 HELP = ("<table cellspacing='0' cellpadding='2' style='font-size:12px'>" +
         "".join(f"<tr><td style='color:#ffd479; padding-right:10px'><b>{k}</b></td><td>{v}</td></tr>"
                 for k, v in _KEYS) + "</table>")
@@ -247,37 +241,42 @@ class Reviewer:
         self.pick.changed.connect(lambda v: v and self.open(self._choices().index(v)))
         self.target_box = ComboBox(choices=list(TARGETS), value=self.target, label="editing")
         self.target_box.changed.connect(self.set_target)
-        self.img_op = FloatSlider(value=1.0, min=0.1, max=1.0, step=0.05, label="opacity")
+        # two sliders instead of a box per layer: 0 hides, 1 is full strength
+        self.img_op = FloatSlider(value=1.0, min=0, max=1.0, step=0.05, readout=False)
         self.img_op.changed.connect(lambda v: "image" in self.viewer.layers and
                                     setattr(self.viewer.layers["image"], "opacity", v))
-        self.show = {k: CheckBox(value=k != "rings", text=k) for k in VIEWS}
-        for k, box in self.show.items():
-            box.changed.connect(lambda v, k=k: self._apply_view(k))
-        show_grid = QWidget()                    # compact: 4 boxes per row, no padding
-        grid = QGridLayout(show_grid)
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(0)
-        for j, k in enumerate(VIEWS):
-            grid.addWidget(self.show[k].native, j // 4, j % 4)
+        self.ov_op = FloatSlider(value=1.0, min=0, max=1.0, step=0.05, readout=False)
+        self.ov_op.changed.connect(lambda v: self._apply_overlays())
+        for s_ in (self.img_op, self.ov_op):
+            s_.native.setFixedWidth(90)
         prev, nxt, save = PushButton(text="< Prev"), PushButton(text="Next >"), PushButton(text="Save + next")
         prev.changed.connect(lambda: self.step(-1))
         nxt.changed.connect(lambda: self.step(1))
         save.changed.connect(self.save_next)
         self.info = Label(value="")
-        self.info.native.setMinimumHeight(70)
-        def row(*w):                             # buttons side by side, flush with the full-width ones
-            c = Container(widgets=list(w), layout="horizontal", labels=False)
-            c.native.layout().setContentsMargins(0, 0, 0, 0)
-            return c
-        # top to bottom in the order of the work: the run, its scale, the image, editing it
-        self.dock = Container(widgets=[row(opn, summ), self.scale, row(self.scale_grp, scale_img),
-                                       self.pick, row(prev, nxt, save),
-                                       self.target_box, self.img_op, self.info])
-        self.info.native.setWordWrap(True)
-        self.info.native.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.info.native.setMinimumHeight(54)
+        # Top bar: every control, left to right in the order of the work (the run and its scale | the image |
+        # editing it). Right panel: what you look at (the numbers, the cortex pattern, what is shown, the keys).
+        bar = QWidget()                          # a plain Qt row: tight enough for a laptop screen
+        hb = QHBoxLayout(bar)
+        hb.setContentsMargins(6, 2, 6, 2)
+        hb.setSpacing(4)
+        self.pick.native.setMinimumContentsLength(16)
+        self.scale.native.setMinimumWidth(140)
+        for w in (opn, "um / pixel", self.scale, self.scale_grp, scale_img, summ, 18,
+                  self.pick, prev, nxt, save, 18,
+                  "editing", self.target_box, 10, "image", self.img_op, "outlines", self.ov_op):
+            if isinstance(w, int):
+                hb.addSpacing(w)
+            else:
+                hb.addWidget(QLabel(w) if isinstance(w, str) else w.native)
+        hb.addStretch(1)
+        self.viewer.window.add_dock_widget(bar, area="top", name="Controls")
         help_lbl = QLabel(HELP)
         help_lbl.setTextFormat(Qt.TextFormat.RichText)
+        self.dock = Container(widgets=[self.info])
+        self.info.native.setWordWrap(True)
+        self.info.native.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.dock.native.setMinimumWidth(240)   # no maximum: drag the panel edge to make it wider or narrower
         # live cortex pattern: cell size per quarter, by file and by distance from the stele
         self.fig = Figure(figsize=(3.2, 3.9), dpi=90, layout="constrained")
@@ -286,10 +285,9 @@ class Reviewer:
         self.canvas.setMinimumHeight(380)
         lay = self.dock.native.layout()
         lay.setSpacing(4)
-        lay.insertWidget(lay.count() - 1, show_grid)     # show boxes just above the info line
         lay.addWidget(self.canvas, stretch=1)            # the graphs take all the spare height
         lay.addWidget(help_lbl)
-        self.viewer.window.add_dock_widget(self.dock, area="right", name="Review")
+        self.viewer.window.add_dock_widget(self.dock, area="right", name="Cortex pattern")
         qv = self.viewer.window._qt_viewer   # napari's own layer panels are not needed
         for d in (qv.dockLayerList, qv.dockLayerControls):
             d.setVisible(False)
@@ -320,16 +318,17 @@ class Reviewer:
     def toggle_overlays(self):
         if self.i is None:
             return
-        show = not any(b.value for k, b in self.show.items() if k != "rings")
-        for k, b in self.show.items():
-            if k != "rings":
-                b.value = show
+        if self.ov_op.value > 0:
+            self._ov_last, self.ov_op.value = self.ov_op.value, 0
+        else:
+            self.ov_op.value = getattr(self, "_ov_last", 1.0)
 
-    def _apply_view(self, k):
+    def _apply_overlays(self):
         if self.i is None:
             return
-        for name in VIEWS[k]:
-            getattr(self, name).visible = self.show[k].value
+        a = self.ov_op.value
+        for lyr, base in self._base.items():
+            lyr.opacity, lyr.visible = base * a, a > 0
 
     def _choices(self):
         return [f.stem + ("  ✓" if P.load_state(f)[3] == "reviewed" else "") for f in self.files]
@@ -351,7 +350,6 @@ class Reviewer:
                                                        colormap=DirectLabelColormap(color_dict=cmap))
         self.region = lab(region.astype(np.uint8), "region", {None: "transparent", 0: "transparent",
                                                                1: (1, 1, 0, 0.06), 2: (0, 0.9, 1, 0.3)}, 1)
-        self.rings = lab(np.zeros_like(cells), "rings", {None: "gray", 0: "transparent", **RING_COLORS}, 0.4)
         self.mx = lab(mx, "metaxylem", {None: "red", 0: "transparent"}, 0.6)
         self.path = lab(np.zeros_like(cells), "file path", {None: "orangered", 0: "transparent"}, 0.55)
         self.cells = lab(cells, "cells", {None: "yellow", 0: "transparent"}, 0.9)
@@ -363,8 +361,8 @@ class Reviewer:
         self.tag = v.add_points(np.empty((0, 2)), name="cursor", size=0)
         for lyr in v.layers[1:]:
             lyr.editable = False
-        for k in VIEWS:
-            self._apply_view(k)
+        self._base = {lyr: lyr.opacity for lyr in v.layers[1:] if lyr is not self.tag}   # each layer's full strength
+        self._apply_overlays()
         v.layers.selection.active = self.cells
         props, _, _ = P.derive(cells, region, mx, self.angle)
         saved = P.load_paths(f)
@@ -405,7 +403,6 @@ class Reviewer:
         cells, region = self.cells.data, self.region.data
         props, _, tr = P.derive(cells, region, self.mx.data, self.angle)
         self.props = props
-        self.rings.data = P.layer_image(cells, props)
         self.air.data = np.isin(cells, props.label[props.tissue == "air_space"].values).astype(np.uint8)
         ft = P.file_table(cells, region, props, self.path_q, self.path_cells)
         self.path.data = np.isin(cells, ft.label.values).astype(np.uint8) if len(ft) else np.zeros_like(cells, np.uint8)
