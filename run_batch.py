@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -90,13 +91,34 @@ def batch(image_dir, out_dir=None, diameter=None, redo=False):
     return out
 
 
+def be_polite():
+    """Run below normal priority with one core left free, so the app's window stays responsive."""
+    try:
+        import torch
+        torch.set_num_threads(max(1, (os.cpu_count() or 2) - 1))
+    except Exception:
+        pass
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            k = ctypes.windll.kernel32
+            k.SetPriorityClass(k.GetCurrentProcess(), 0x4000)   # BELOW_NORMAL_PRIORITY_CLASS
+        else:
+            os.nice(10)
+    except Exception:
+        pass
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("image_dir", type=Path)
     ap.add_argument("out_dir", type=Path, nargs="?")
     ap.add_argument("--diameter", type=float)
     ap.add_argument("--redo", action="store_true", help="re-propose images that are still 'auto' (never overwrites reviewed ones)")
+    ap.add_argument("--background", action="store_true", help="low priority, one core free (used by the app)")
     a = ap.parse_args()
+    if a.background:
+        be_polite()
     for i, n, line in batch(a.image_dir, a.out_dir, a.diameter, a.redo):
         print(f"[{i}/{n}] {line}", flush=True)
 

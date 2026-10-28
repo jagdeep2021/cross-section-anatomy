@@ -42,7 +42,8 @@ from matplotlib.figure import Figure
 from magicgui.widgets import ComboBox, Container, FloatSlider, FloatSpinBox, Label, PushButton
 from napari.qt.threading import thread_worker
 from napari.utils.colormaps import DirectLabelColormap
-from qtpy.QtCore import QEvent, QSize, Qt
+import re
+from qtpy.QtCore import QEvent, QProcess, QProcessEnvironment, QSize, Qt
 from qtpy.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QScrollArea, QSizePolicy, QWidget
 from scipy import ndimage as ndi
 from skimage.draw import polygon as fill_polygon
@@ -182,34 +183,47 @@ class Reviewer:
         if (anatomy / "settings.json").exists():
             self.load_experiment(anatomy)            # show what is measured already while the rest runs
 
-        @thread_worker
-        def work():
-            yield (f"{todo} image(s) to measure in\n{images}\nLoading the outlining model (the first time "
-                   f"this downloads ~1 GB: a few minutes)...")
-            gen = RB.batch(images, anatomy)
-            try:
-                while True:
-                    i, n, line = next(gen)
-                    yield (i, n, f"Measuring image {i} of {n}\n{line}\n(you can close the app; Open folder "
-                                 f"continues where it stopped)")
-            except StopIteration as stop:
-                return stop.value
+        # measuring runs as its own low-priority process: on a laptop without a GPU the outlining model
+        # takes every core, and inside the app it would freeze the buttons until it finished
+        self.busy = True
+        self.info.value = (f"{todo} image(s) to measure in\n{images}\nLoading the outlining model (the first time "
+                           f"this downloads ~1 GB: a few minutes)...")
+        self._tail = []
+        proc = self.proc = QProcess()
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("PYTHONUNBUFFERED", "1")
+        proc.setProcessEnvironment(env)
+        proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
 
-        def progress(msg):
-            if isinstance(msg, str):
-                self.info.value = msg
-                return
-            i, n, text = msg
-            self.viewer.title = f"Measuring {i} of {n} - Root cross-section anatomy"
-            self._add_new(anatomy)
-            self.info.value = text
+        def output():
+            for line in bytes(proc.readAllStandardOutput()).decode(errors="replace").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                self._tail = (self._tail + [line])[-40:]
+                m = re.match(r"\[(\d+)/(\d+)\] (.*)", line)
+                if m:
+                    i, n = int(m[1]), int(m[2])
+                    self.viewer.title = f"Measuring {i} of {n} - Root cross-section anatomy"
+                    self._add_new(anatomy)
+                    self.info.value = (f"Measuring image {i} of {n}\n{m[3]}\n(you can close the app; "
+                                       f"Open folder continues where it stopped)")
 
-        def done(out):
+        def finished(code, _status=None):
+            self.busy = False
             self.viewer.title = "Root cross-section anatomy"
-            self._add_new(out)
-            self.info.value = f"All {len(self.files)} images measured. Now type the um / pixel scale, then Make results."
+            self._add_new(anatomy)
+            if code == 0:
+                self.info.value = (f"All {len(self.files)} images measured. Now type the um / pixel scale, "
+                                   f"then Make results.")
+            else:
+                self._error(RuntimeError("Measuring stopped:\n" + "\n".join(self._tail[-15:])))
 
-        self._run(work, done, progress)
+        proc.readyReadStandardOutput.connect(output)
+        proc.finished.connect(finished)
+        napari.qt.get_qapp().aboutToQuit.connect(proc.kill)    # closing the app stops measuring; Open folder resumes
+        proc.start(sys.executable, ["-W", "ignore", str(Path(__file__).with_name("run_batch.py")),
+                                    str(images), str(anatomy), "--background"])
 
     def _add_new(self, anatomy):
         """Images measured so far appear in the list; the first one opens straight away."""
