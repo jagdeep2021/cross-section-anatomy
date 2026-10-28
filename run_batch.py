@@ -28,9 +28,13 @@ def image_key(rel: Path) -> str:
     return str(rel.with_suffix("")).replace("/", "__")
 
 
+OUTPUT_DIRS = {"anatomy", "results"}         # the tool's own outputs, never images to measure
+
+
 def list_images(image_dir: Path) -> list[Path]:
-    return sorted(p.relative_to(image_dir) for p in image_dir.rglob("*")
-                  if p.suffix.lower() in P.IMAGE_EXT and not p.name.startswith("."))
+    return sorted(r for r in (p.relative_to(image_dir) for p in image_dir.rglob("*"))
+                  if r.suffix.lower() in P.IMAGE_EXT and not r.name.startswith(".")
+                  and not OUTPUT_DIRS & set(r.parts[:-1]))
 
 
 def load_settings(out_dir: Path, image_dir: Path | None = None, **override) -> dict:
@@ -51,9 +55,9 @@ def locate(folder):
         if (a / "settings.json").exists():
             imgs = P.image_dir(a, json.loads((a / "settings.json").read_text()))
             return a, (imgs if imgs.exists() else None)
-    for imgs in (d / "raw", d):
-        if imgs.is_dir() and list_images(imgs):
-            return imgs.parent / "anatomy", imgs
+    for imgs in (d / "raw", d):                  # results always go inside the folder picked, so two image
+        if imgs.is_dir() and list_images(imgs):  # folders side by side never share (and mix) one anatomy/
+            return (d.parent if d.name.lower() == "raw" else d) / "anatomy", imgs   # never write into raw/
     return None, None
 
 
