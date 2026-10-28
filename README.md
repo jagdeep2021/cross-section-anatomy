@@ -31,6 +31,10 @@ delete the folder to uninstall). Then `Open app (…)`: the top bar has Open fol
 the image list and the editor (1-5: cell, metaxylem, stele, file path, quarters; in quarters mode Ctrl/⌘-click drops a
 damaged quarter, click brings it back). The quarter centre is always the traced stele's centre; `run_batch.py` / `summarise.py` still work from the command line.
 On a Mac, a downloaded .command opens the first time only with right-click → Open.
+Updates: `git pull`, then Open app as usual; it reinstalls packages by itself when requirements.txt changed.
+Speed: ~10 s/image with a GPU (Apple silicon, NVIDIA); on a laptop without one (e.g. i3, Intel graphics, 8 GB) it is
+tens of minutes per image. Measure there on a fast computer instead: `anatomy/` stores paths relative to itself, so the
+experiment folder (OneDrive) opens anywhere with nothing left to measure.
 
 ## Editable state
 

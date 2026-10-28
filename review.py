@@ -210,7 +210,7 @@ class Reviewer:
                 head = f"Downloading the outlining model (first time only): {clock['dl']}%"
                 bar_text = f"downloading the model (first time only)  {clock['dl']}%"
             elif not clock["per"]:
-                slow = ("  ·  no graphics card: the first image can take 5-15 min" if clock["dev"] == "cpu" else "")
+                slow = ("  ·  no graphics card: can take 10-30 min per image" if clock["dev"] == "cpu" else "")
                 head = f"Measuring the first image... {mmss(now - clock['last'])}{slow}"
                 bar_text = f"0 of {clock['n']}  ·  first image  {mmss(now - clock['last'])}{slow}"
             else:
