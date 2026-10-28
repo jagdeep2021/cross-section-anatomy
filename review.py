@@ -43,7 +43,8 @@ from magicgui.widgets import ComboBox, Container, FloatSlider, FloatSpinBox, Lab
 from napari.qt.threading import thread_worker
 from napari.utils.colormaps import DirectLabelColormap
 import re
-from qtpy.QtCore import QEvent, QProcess, QProcessEnvironment, QSize, Qt
+import time
+from qtpy.QtCore import QEvent, QProcess, QProcessEnvironment, QSize, Qt, QTimer
 from qtpy.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QScrollArea, QSizePolicy, QWidget
 from scipy import ndimage as ndi
 from skimage.draw import polygon as fill_polygon
@@ -189,6 +190,29 @@ class Reviewer:
         self.info.value = (f"{todo} image(s) to measure in\n{images}\nLoading the outlining model (the first time "
                            f"this downloads ~1 GB: a few minutes)...")
         self._tail = []
+        clock = {"start": time.time(), "last": time.time(), "per": [], "i": 0, "n": todo}
+
+        def mmss(sec):
+            sec = int(sec)
+            return f"{sec // 3600}:{sec // 60 % 60:02d}:{sec % 60:02d}" if sec >= 3600 else f"{sec // 60}:{sec % 60:02d}"
+
+        def heartbeat():                         # a ticking clock, so a slow laptop never looks frozen
+            if not self.busy:
+                return beat.stop()
+            now = time.time()
+            if not clock["per"]:
+                head = f"Loading the model / measuring the first image... {mmss(now - clock['start'])}"
+            else:
+                per = sum(clock["per"]) / len(clock["per"])
+                left = per * max(clock["n"] - clock["i"], 0) - (now - clock["last"])
+                head = (f"Measuring {clock['i'] + 1} of {clock['n']}  ·  {mmss(per)} per image  ·  "
+                        f"about {mmss(max(left, 0))} left")
+            self.viewer.title = head + " - Root cross-section anatomy"
+            lines = self.info.value.split("\n")
+            self.info.value = "\n".join([head] + [l for l in lines[1:] if l][-2:]) if lines else head
+        beat = self._beat = QTimer()
+        beat.timeout.connect(heartbeat)
+        beat.start(1000)
         proc = self.proc = QProcess()
         env = QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONUNBUFFERED", "1")
@@ -204,9 +228,13 @@ class Reviewer:
                 m = re.match(r"\[(\d+)/(\d+)\] (.*)", line)
                 if m:
                     i, n = int(m[1]), int(m[2])
-                    self.viewer.title = f"Measuring {i} of {n} - Root cross-section anatomy"
+                    now = time.time()
+                    if "(done before)" not in m[3]:
+                        clock["per"].append(now - clock["last"])
+                        clock["i"] += 1
+                    clock["last"] = now
                     self._add_new(anatomy)
-                    self.info.value = (f"Measuring image {i} of {n}\n{m[3]}\n(you can close the app; "
+                    self.info.value = (f"Measured {i} of {n}\n{m[3]}\n(you can close the app; "
                                        f"Open folder continues where it stopped)")
 
         def finished(code, _status=None):
