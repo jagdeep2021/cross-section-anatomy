@@ -45,7 +45,7 @@ from napari.utils.colormaps import DirectLabelColormap
 import re
 import time
 from qtpy.QtCore import QEvent, QProcess, QProcessEnvironment, QSize, Qt, QTimer
-from qtpy.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QScrollArea, QSizePolicy, QWidget
+from qtpy.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QScrollArea, QSizePolicy, QWidget
 from scipy import ndimage as ndi
 from skimage.draw import polygon as fill_polygon
 
@@ -82,6 +82,8 @@ class WrapBar(QWidget):
     def _place(self, width):
         x = y = row_h = 0
         for b in self.boxes:
+            if b.isHidden():                     # the progress box only shows while measuring
+                continue
             s = b.sizeHint()
             if x and x + s.width() > width - 2 * self.GAP:
                 x, y, row_h = 0, y + row_h + self.GAP, 0
@@ -190,7 +192,11 @@ class Reviewer:
         self.info.value = (f"{todo} image(s) to measure in\n{images}\nLoading the outlining model (the first time "
                            f"this downloads ~1 GB: a few minutes)...")
         self._tail = []
-        clock = {"start": time.time(), "last": time.time(), "per": [], "i": 0, "n": todo}
+        clock = {"start": time.time(), "last": time.time(), "per": [], "i": 0, "n": todo, "dev": "", "dl": None}
+        self.progress.setRange(0, todo)
+        self.progress.setValue(0)
+        self.prog_box.show()
+        self.bar._place(self.bar.width())
 
         def mmss(sec):
             sec = int(sec)
@@ -200,13 +206,21 @@ class Reviewer:
             if not self.busy:
                 return beat.stop()
             now = time.time()
-            if not clock["per"]:
-                head = f"Loading the model / measuring the first image... {mmss(now - clock['start'])}"
+            if clock["dl"] is not None and clock["dl"] < 100:     # first run only: the outlining model, ~1.2 GB
+                head = f"Downloading the outlining model (first time only): {clock['dl']}%"
+                bar_text = f"downloading the model (first time only)  {clock['dl']}%"
+            elif not clock["per"]:
+                slow = ("  ·  no graphics card: the first image can take 5-15 min" if clock["dev"] == "cpu" else "")
+                head = f"Measuring the first image... {mmss(now - clock['last'])}{slow}"
+                bar_text = f"0 of {clock['n']}  ·  first image  {mmss(now - clock['last'])}{slow}"
             else:
                 per = sum(clock["per"]) / len(clock["per"])
                 left = per * max(clock["n"] - clock["i"], 0) - (now - clock["last"])
                 head = (f"Measuring {clock['i'] + 1} of {clock['n']}  ·  {mmss(per)} per image  ·  "
                         f"about {mmss(max(left, 0))} left")
+                bar_text = f"{clock['i']} of {clock['n']} done  ·  about {mmss(max(left, 0))} left"
+            self.progress.setValue(min(clock["i"], clock["n"]))
+            self.progress.setFormat(bar_text)
             self.viewer.title = head + " - Root cross-section anatomy"
             lines = self.info.value.split("\n")
             self.info.value = "\n".join([head] + [l for l in lines[1:] if l][-2:]) if lines else head
@@ -225,6 +239,19 @@ class Reviewer:
                 if not line:
                     continue
                 self._tail = (self._tail + [line])[-40:]
+                dl = re.search(r"(\d+)%\|", line)        # the model download's progress line
+                if dl:
+                    clock["dl"] = int(dl[1])
+                    if clock["dl"] >= 100 and not clock["per"]:
+                        clock["last"] = time.time()    # the download is not part of the time per image
+                    continue
+                if line.startswith("[device]"):
+                    clock["dev"] = line.split()[-1]
+                    continue
+                if line.startswith("[start"):          # a new image begins: time it from here
+                    if not clock["per"]:
+                        clock["last"] = time.time()
+                    continue
                 m = re.match(r"\[(\d+)/(\d+)\] (.*)", line)
                 if m:
                     i, n = int(m[1]), int(m[2])
@@ -239,6 +266,8 @@ class Reviewer:
 
         def finished(code, _status=None):
             self.busy = False
+            self.prog_box.hide()
+            self.bar._place(self.bar.width())
             self.viewer.title = "Root cross-section anatomy"
             self._add_new(anatomy)
             if code == 0:
@@ -357,9 +386,13 @@ class Reviewer:
             gl.setContentsMargins(6, 3, 6, 3)
             gl.setSpacing(4)
             for w in items:
-                gl.addWidget(QLabel(w) if isinstance(w, str) else w.native)
+                gl.addWidget(QLabel(w) if isinstance(w, str) else w if isinstance(w, QWidget) else w.native)
             return box
-        bar = WrapBar([group(opn, summ),
+        self.progress = QProgressBar()
+        self.progress.setMinimumWidth(320)
+        self.prog_box = group("measuring", self.progress)
+        self.prog_box.hide()
+        bar = self.bar = WrapBar([group(opn, summ), self.prog_box,
                        group("µm/px", self.scale, self.scale_grp, scale_img),
                        group(self.pick, prev, nxt, save),
                        group("editing", self.target_box, "opacity", self.ov_op),

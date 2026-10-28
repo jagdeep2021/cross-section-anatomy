@@ -61,7 +61,7 @@ def n_to_measure(image_dir, anatomy_dir) -> int:
     return sum(not (Path(anatomy_dir) / "masks" / f"{image_key(r)}.npz").exists() for r in list_images(Path(image_dir)))
 
 
-def batch(image_dir, out_dir=None, diameter=None, redo=False):
+def batch(image_dir, out_dir=None, diameter=None, redo=False, on_start=None):
     """Outline every image; yields (i, n, line) per image so a caller can show progress.
     Writes samples.xlsx at the end. Returns (StopIteration value) the anatomy folder."""
     image_dir = Path(image_dir).resolve()
@@ -78,6 +78,8 @@ def batch(image_dir, out_dir=None, diameter=None, redo=False):
         if npz.exists() and (not redo or P.load_state(npz)[3] == "reviewed"):
             yield i, len(imgs), f"{rel.as_posix()}  (done before)"
             continue
+        if on_start:
+            on_start(i, len(imgs), rel)
         t = time.time()
         gray, cells, region, mx = P.propose(image_dir / rel, s.get("diameter"))
         props, _, tr = P.derive(cells, region, mx, s.get("quadrant_angle_deg", 0))
@@ -119,7 +121,14 @@ def main():
     a = ap.parse_args()
     if a.background:
         be_polite()
-    for i, n, line in batch(a.image_dir, a.out_dir, a.diameter, a.redo):
+    try:                                         # the app shows this: no GPU means minutes per image, not seconds
+        import torch
+        dev = "gpu" if torch.cuda.is_available() or torch.backends.mps.is_available() else "cpu"
+    except Exception:
+        dev = "cpu"
+    print(f"[device] {dev}", flush=True)
+    start = lambda i, n, rel: print(f"[start {i}/{n}] {rel.as_posix()}", flush=True)
+    for i, n, line in batch(a.image_dir, a.out_dir, a.diameter, a.redo, on_start=start):
         print(f"[{i}/{n}] {line}", flush=True)
 
 
