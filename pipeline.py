@@ -56,6 +56,9 @@ def wall_mask(gray: np.ndarray) -> np.ndarray:
 
 def segment_cells(gray: np.ndarray, diameter: float | None = None, model_path: str | None = None) -> np.ndarray:
     global _MODEL
+    import logging
+    for name in ("cellpose.vit", "cellpose.models"):
+        logging.getLogger(name).setLevel(logging.ERROR)   # hides 'Could not import CPDINO' (a model we don't use)
     from cellpose import models
     if _MODEL is None:
         _MODEL = models.CellposeModel(gpu=True, pretrained_model=model_path) if model_path else models.CellposeModel(gpu=True)

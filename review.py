@@ -703,7 +703,7 @@ if __name__ == "__main__":
     # napari reopens where it last closed, which can be off a screen that is no longer attached:
     # always open on the main screen, full size
     win = r.viewer.window._qt_window
-    win.setGeometry(napari.qt.get_qapp().primaryScreen().availableGeometry())
+    win.move(napari.qt.get_qapp().primaryScreen().availableGeometry().topLeft())   # onto the main screen, then fill it
     win.showMaximized()
     win.raise_()
     napari.run()
