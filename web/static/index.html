@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Root cross-section anatomy</title>
+<link rel="icon" href="/icon.png">
+<style>
+  :root { --bg:#f6f5f2; --panel:#ffffff; --ink:#22231f; --muted:#6c6d66; --line:#dddcd5; --accent:#2f6b4f;
+          --accent-ink:#fff; --warn:#a4471f; --chip:#eceae3; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#171816; --panel:#20211e; --ink:#e9e8e2; --muted:#9d9e96; --line:#34352f; --accent:#7fbf9b;
+            --accent-ink:#10140f; --warn:#e48a5f; --chip:#2b2c28; }
+  }
+  * { box-sizing:border-box; }
+  html, body { height:100%; margin:0; }
+  body { background:var(--bg); color:var(--ink); font:14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+         display:grid; grid-template-columns:300px 1fr 260px; grid-template-rows:auto 1fr; }
+  header { grid-column:1 / -1; display:flex; align-items:center; gap:12px; padding:10px 16px;
+           border-bottom:1px solid var(--line); background:var(--panel); }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header .who { margin-left:auto; color:var(--muted); }
+  aside, .side { background:var(--panel); border-right:1px solid var(--line); overflow:auto; padding:14px; }
+  .side { border-right:0; border-left:1px solid var(--line); }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:18px 0 8px; }
+  h2:first-child { margin-top:0; }
+  button, select, input { font:inherit; color:inherit; }
+  button { background:var(--chip); border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; }
+  button.primary { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:default; }
+  input[type=text], input[type=number], select { background:var(--bg); border:1px solid var(--line); border-radius:6px;
+          padding:5px 8px; width:100%; }
+  .row { display:flex; gap:6px; align-items:center; margin:6px 0; }
+  .row > * { flex:1; }
+  .row > button { flex:0 0 auto; }
+  .list { list-style:none; margin:0; padding:0; }
+  .list li { padding:5px 8px; border-radius:6px; cursor:pointer; display:flex; gap:6px; align-items:center;
+             overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .list li:hover { background:var(--chip); }
+  .list li.on { background:var(--accent); color:var(--accent-ink); }
+  .dot { width:8px; height:8px; border-radius:50%; flex:0 0 8px; background:var(--line); }
+  .dot.auto { background:#d9a400; } .dot.reviewed { background:#2f9e5c; }
+  .muted { color:var(--muted); }
+  .msg { color:var(--muted); font-size:13px; margin:6px 0; min-height:1em; white-space:pre-wrap; }
+  .msg.err { color:var(--warn); }
+  progress { width:100%; height:10px; }
+  main { position:relative; overflow:hidden; background:#0d0d0c; }
+  main canvas { position:absolute; inset:0; width:100%; height:100%; cursor:grab; }
+  main .hint { position:absolute; left:12px; bottom:10px; color:#bbb; font-size:12px; pointer-events:none; }
+  main .empty { position:absolute; inset:0; display:grid; place-items:center; color:#999; padding:24px; text-align:center; }
+  dl { display:grid; grid-template-columns:1fr auto; gap:3px 10px; margin:0; font-variant-numeric:tabular-nums; }
+  dt { color:var(--muted); } dd { margin:0; text-align:right; }
+  .legend span { display:inline-flex; align-items:center; gap:5px; margin:2px 10px 2px 0; font-size:12px; }
+  .legend i { width:12px; height:3px; display:inline-block; }
+  label.file { display:inline-block; }
+  label.file input { display:none; }
+  @media (max-width: 900px) {
+    body { grid-template-columns:1fr; grid-template-rows:auto auto 60vh auto; }
+    aside, .side { border:0; border-bottom:1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <img src="/icon.png" alt="" width="24" height="24">
+  <h1>Root cross-section anatomy</h1>
+  <span class="who" id="who"></span>
+</header>
+
+<aside>
+  <h2>Project</h2>
+  <div class="row"><select id="projSel"></select></div>
+  <div class="row"><input type="text" id="projName" placeholder="New project name"><button id="projNew">Create</button></div>
+
+  <div id="projPanel" hidden>
+    <h2>1 · Images</h2>
+    <div class="row">
+      <label class="file"><button type="button" onclick="this.nextElementSibling.click()">Add folder…</button><input type="file" id="upDir" webkitdirectory multiple></label>
+      <label class="file"><button type="button" onclick="this.nextElementSibling.click()">Add files…</button><input type="file" id="upFiles" multiple accept=".tif,.tiff,.png,.jpg,.jpeg"></label>
+    </div>
+    <div class="msg">Folders become groups: Maize/sibs/P1/x.tif → species, genotype, plant.</div>
+
+    <h2>2 · Measure</h2>
+    <div class="row"><button class="primary" id="measure">Outline new images</button></div>
+    <progress id="prog" value="0" max="1" hidden></progress>
+    <div class="msg" id="jobMsg"></div>
+
+    <h2>3 · Scale (µm per pixel)</h2>
+    <div class="row"><input type="number" id="scale" step="0.0001" min="0" placeholder="e.g. 0.7194"></div>
+    <div class="row"><button id="scaleImg">This image</button><button id="scaleGrp">All in group</button><button id="scaleAll">All</button></div>
+    <div class="msg" id="scaleMsg"></div>
+
+    <h2>4 · Results</h2>
+    <div class="row"><button class="primary" id="results">Make results</button><button id="download">Download</button></div>
+    <div class="msg" id="resMsg"></div>
+
+    <h2>Images <span class="muted" id="count"></span></h2>
+    <ul class="list" id="imgList"></ul>
+  </div>
+  <div class="msg err" id="err"></div>
+</aside>
+
+<main id="view">
+  <canvas id="cv"></canvas>
+  <div class="empty" id="empty">Pick a project, add images, then Outline new images.</div>
+  <div class="hint">drag = move · scroll = zoom · O = outlines on/off · ← → = previous / next</div>
+</main>
+
+<section class="side">
+  <h2>Show</h2>
+  <div class="row"><span>Outlines</span><input type="range" id="ovOp" min="0" max="1" step="0.05" value="1"></div>
+  <div class="legend">
+    <span><i style="background:rgb(80,255,120)"></i>cells</span>
+    <span><i style="background:rgb(255,220,0)"></i>root</span>
+    <span><i style="background:rgb(0,220,255)"></i>stele</span>
+    <span><i style="background:rgb(255,60,60)"></i>metaxylem</span>
+    <span><i style="background:rgb(255,150,0)"></i>file path</span>
+  </div>
+  <h2>This image</h2>
+  <div id="imgName" class="muted">–</div>
+  <dl id="traits"></dl>
+</section>
+
+<script>
+const $ = id => document.getElementById(id);
+const S = { project: null, images: [], i: -1, gray: null, ov: null, poll: null,
+            view: { s: 1, x: 0, y: 0 }, showOv: true };
+
+async function api(path, opt = {}) {
+  const r = await fetch(path, opt);
+  if (!r.ok) {
+    let m = r.statusText;
+    try { m = (await r.json()).detail || m; } catch (_) {}
+    throw new Error(m);
+  }
+  return r.headers.get("content-type")?.includes("json") ? r.json() : r;
+}
+const form = o => { const f = new FormData(); for (const k in o) f.append(k, o[k]); return { method: "POST", body: f }; };
+const showErr = e => { $("err").textContent = e ? (e.message || e) : ""; };
+const enc = encodeURIComponent;
+
+// ---------------------------------------------------------------- projects
+async function loadProjects(pick) {
+  const ps = await api("/api/projects");
+  $("projSel").innerHTML = '<option value="">– choose –</option>' + ps.map(p => `<option>${p}</option>`).join("");
+  if (pick) { $("projSel").value = pick; await openProject(pick); }
+}
+async function openProject(name) {
+  S.project = name || null;
+  $("projPanel").hidden = !name;
+  try { localStorage.setItem("csa.project", name || ""); } catch (_) {}
+  if (name) await refresh(true);
+}
+async function refresh(first) {
+  const p = await api(`/api/projects/${enc(S.project)}`);
+  const keep = S.images[S.i]?.image;
+  S.images = p.images;
+  $("count").textContent = `(${p.images.length})`;
+  $("imgList").innerHTML = p.images.map((im, k) =>
+    `<li data-k="${k}" title="${im.image}"><span class="dot ${im.status.replace(" ", "-")}"></span>${im.image}</li>`).join("");
+  job(p.job);
+  $("resMsg").textContent = p.results.length ? "Latest: " + p.results.join(", ") : "";
+  const k = keep ? S.images.findIndex(im => im.image === keep) : -1;
+  if (k >= 0) mark(k);
+  else if (first || S.i < 0) { const m = S.images.findIndex(im => im.status !== "not measured"); if (m >= 0) show(m); }
+}
+function job(j) {
+  const run = j && (j.state === "queued" || j.state === "running");
+  $("prog").hidden = !j || j.state === "done";
+  if (j) { $("prog").max = j.n || 1; $("prog").value = j.i || 0; }
+  $("jobMsg").textContent = !j ? "" : j.state === "queued" ? `Waiting for the GPU (${j.ahead} project(s) ahead)…`
+    : j.state === "running" ? `${j.i} of ${j.n}: ${j.line || "loading the model…"}` : j.line;
+  $("jobMsg").className = "msg" + (j && j.state === "error" ? " err" : "");
+  $("measure").disabled = run;
+  clearTimeout(S.poll);
+  if (run) S.poll = setTimeout(() => refresh().catch(showErr), 2000);
+}
+
+$("projSel").onchange = e => openProject(e.target.value).catch(showErr);
+$("projNew").onclick = async () => {
+  try { const r = await api("/api/projects", form({ name: $("projName").value })); $("projName").value = "";
+        await loadProjects(r.name); } catch (e) { showErr(e); }
+};
+
+// ---------------------------------------------------------------- upload, measure, scale, results
+async function upload(files) {
+  const imgs = [...files].filter(f => /\.(tiff?|png|jpe?g)$/i.test(f.name) && !f.name.startsWith("."));
+  if (!imgs.length) return showErr("No images (.tif .png .jpg) in that selection.");
+  showErr();
+  for (let k = 0; k < imgs.length; k += 10) {         // in batches of 10, so a big folder shows progress
+    const f = new FormData();
+    imgs.slice(k, k + 10).forEach(x => f.append("files", x, x.webkitRelativePath || x.name));
+    $("jobMsg").textContent = `Uploading ${Math.min(k + 10, imgs.length)} of ${imgs.length}…`;
+    await api(`/api/projects/${enc(S.project)}/upload`, { method: "POST", body: f });
+  }
+  $("jobMsg").textContent = `${imgs.length} image(s) added. Next: Outline new images.`;
+  await refresh();
+}
+$("upDir").onchange = e => upload(e.target.files).catch(showErr);
+$("upFiles").onchange = e => upload(e.target.files).catch(showErr);
+$("measure").onclick = async () => { try { job(await api(`/api/projects/${enc(S.project)}/measure`, { method: "POST" })); } catch (e) { showErr(e); } };
+
+async function setScale(which) {
+  const im = S.images[S.i], v = parseFloat($("scale").value);
+  if (!(v > 0)) return showErr("Type the scale first (µm per pixel).");
+  const body = { um_per_px: v, group: "", rel: "" };
+  if (which === "img") { if (!im) return; body.rel = im.image; }
+  if (which === "grp") { if (!im) return; body.group = im.image.split("/")[0]; }
+  try { const r = await api(`/api/projects/${enc(S.project)}/scale`, form(body));
+        $("scaleMsg").textContent = `${v} µm/px set for ${r.set} image(s).`; await refresh(); } catch (e) { showErr(e); }
+}
+$("scaleImg").onclick = () => setScale("img");
+$("scaleGrp").onclick = () => setScale("grp");
+$("scaleAll").onclick = () => setScale("all");
+$("results").onclick = async () => {
+  $("results").disabled = true; $("resMsg").textContent = "Making the tables and figures… (about 1 min per 50 images)";
+  try { const r = await api(`/api/projects/${enc(S.project)}/results`, { method: "POST" });
+        $("resMsg").textContent = "Done: " + r.results.join(", ") + ". Click Download."; }
+  catch (e) { showErr(e); $("resMsg").textContent = ""; }
+  $("results").disabled = false;
+};
+$("download").onclick = () => { location.href = `/api/projects/${enc(S.project)}/download`; };
+
+// ---------------------------------------------------------------- viewer
+const cv = $("cv"), ctx = cv.getContext("2d");
+function mark(k) {
+  S.i = k;
+  document.querySelectorAll("#imgList li").forEach(li => li.classList.toggle("on", +li.dataset.k === k));
+  document.querySelector(`#imgList li[data-k="${k}"]`)?.scrollIntoView({ block: "nearest" });
+}
+function load(src) { return new Promise((ok, no) => { const im = new Image(); im.onload = () => ok(im); im.onerror = no; im.src = src; }); }
+async function show(k) {
+  if (k < 0 || k >= S.images.length) return;
+  mark(k);
+  const im = S.images[k], q = `?rel=${enc(im.image)}&t=${Date.now()}`, base = `/api/projects/${enc(S.project)}`;
+  $("imgName").textContent = im.image;
+  $("scale").value = im.um_per_px ?? "";
+  $("empty").hidden = true;
+  const fresh = !S.gray;
+  S.gray = await load(`${base}/image/gray${q}`);
+  S.ov = im.status === "not measured" ? null : await load(`${base}/image/overlay${q}`).catch(() => null);
+  if (fresh || S.gray.width !== S.lastW) fit();
+  S.lastW = S.gray.width;
+  draw();
+  $("traits").innerHTML = "";
+  if (im.status !== "not measured") {
+    const t = await api(`${base}/traits${q}`), um = im.um_per_px;
+    const rows = [["status", t.status], ["files per quarter", t.files_per_quarter.join(" / ")],
+      ["cortical layers", t.n_cortical_layers], ["cortex cells", t.n_cortex_cells], ["air spaces", t.n_air_spaces],
+      ["metaxylem", t.mx_n],
+      um ? ["root area (mm²)", (t.root_area_px * um * um / 1e6).toFixed(3)] : ["root area (px)", t.root_area_px],
+      um ? ["stele area (mm²)", (t.stele_area_px * um * um / 1e6).toFixed(3)] : ["stele area (px)", t.stele_area_px],
+      um ? ["cortex width (µm)", (t.cortex_width_px * um).toFixed(0)] : ["cortex width (px)", t.cortex_width_px.toFixed(0)]];
+    $("traits").innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("");
+  }
+}
+function fit() {
+  const r = cv.getBoundingClientRect(), s = Math.min(r.width / S.gray.width, r.height / S.gray.height) * 0.96;
+  S.view = { s, x: (r.width - S.gray.width * s) / 2, y: (r.height - S.gray.height * s) / 2 };
+}
+function draw() {
+  const r = cv.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  cv.width = r.width * dpr; cv.height = r.height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, r.width, r.height);
+  if (!S.gray) return;
+  const { s, x, y } = S.view;
+  ctx.imageSmoothingEnabled = s < 1;
+  ctx.drawImage(S.gray, x, y, S.gray.width * s, S.gray.height * s);
+  if (S.ov && S.showOv) { ctx.globalAlpha = +$("ovOp").value; ctx.drawImage(S.ov, x, y, S.ov.width * s, S.ov.height * s); ctx.globalAlpha = 1; }
+}
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top, f = Math.exp(-e.deltaY * 0.0015);
+  S.view.x = mx - (mx - S.view.x) * f; S.view.y = my - (my - S.view.y) * f; S.view.s *= f; draw();
+}, { passive: false });
+let drag = null;
+cv.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY }; cv.setPointerCapture(e.pointerId); cv.style.cursor = "grabbing"; });
+cv.addEventListener("pointermove", e => { if (!drag) return; S.view.x += e.clientX - drag.x; S.view.y += e.clientY - drag.y; drag = { x: e.clientX, y: e.clientY }; draw(); });
+cv.addEventListener("pointerup", () => { drag = null; cv.style.cursor = "grab"; });
+addEventListener("resize", draw);
+$("ovOp").oninput = draw;
+$("imgList").onclick = e => { const li = e.target.closest("li"); if (li) show(+li.dataset.k).catch(showErr); };
+addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "ArrowRight") show(S.i + 1).catch(showErr);
+  if (e.key === "ArrowLeft") show(S.i - 1).catch(showErr);
+  if (e.key === "o" || e.key === "O") { S.showOv = !S.showOv; draw(); }
+});
+
+// ---------------------------------------------------------------- start
+(async () => {
+  try {
+    const me = await api("/api/me");
+    $("who").textContent = me.email;
+    let last = ""; try { last = localStorage.getItem("csa.project") || ""; } catch (_) {}
+    await loadProjects();
+    if (last && [...$("projSel").options].some(o => o.value === last)) { $("projSel").value = last; await openProject(last); }
+  } catch (e) {
+    document.body.innerHTML = `<p style="padding:24px">You are not signed in. Open the login link you were sent
+      (ask Jagdeep for one).</p>`;
+  }
+})();
+</script>
+</body>
+</html>

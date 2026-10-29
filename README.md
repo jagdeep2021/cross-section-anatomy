@@ -67,6 +67,23 @@ and writes `compare_<other>_vs_<reference>.xlsx` next to `other`: per trait n ch
 limits of agreement (Bland & Altman 1986), mean |% difference| and Lin's CCC (Lin 1989); per image the values.
 For the examples, the reference is `summarise.py examples/<set>/anatomy` on the untouched (auto) copy from git.
 
+## Web version (branch `web`, in progress)
+
+The same pipeline behind a browser page, for laptops without a GPU and users outside the lab. `web/server.py`
+(FastAPI) keeps each project in the desktop layout (`raw/`, `anatomy/`, `results/`) and calls `run_batch.batch`,
+`derive()` and `summarise.main` unchanged, so web and desktop numbers are identical (checked on 6 SL-2026-004 images,
+2026-10-29: every measurement column equal). One GPU worker measures projects in turn.
+
+```bash
+.venv/bin/pip install -r web/requirements-web.txt
+.venv/bin/python web/server.py invite someone@example.com [--admin]   # prints their login link
+.venv/bin/python web/server.py serve --port 8000                       # data in $CSA_DATA (default ./web_data)
+```
+Done: invite-only accounts (only the token hash is stored), projects, folder upload (folders become groups), queued
+GPU measuring with progress, image + outline layers with pan/zoom, per-image numbers, scale, Make results, download zip.
+Next: click editing (cells, metaxylem, stele, file path, quarters) on the server's edit functions; per-user quotas;
+a container for deployment (MU server or a GPU service, whichever IT approves).
+
 ## Editable state
 
 Saving: Save + next (Shift-S) saves and marks the image `reviewed`; leaving an edited image any other way

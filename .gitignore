@@ -8,3 +8,4 @@ __pycache__/
 # QC previews and results/ are regenerated, so not tracked
 examples/*/anatomy/qc/
 examples/*/results/
+web_data/
