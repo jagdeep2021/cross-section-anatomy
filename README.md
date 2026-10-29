@@ -36,6 +36,23 @@ Speed: ~10 s/image with a GPU (Apple silicon, NVIDIA); on a laptop without one (
 tens of minutes per image. Measure there on a fast computer instead: `anatomy/` stores paths relative to itself, so the
 experiment folder (OneDrive) opens anywhere with nothing left to measure.
 
+## Web version (branch `web`, in progress)
+
+The same pipeline behind a browser page, for laptops without a GPU and users outside the lab. `web/server.py`
+(FastAPI) keeps each project in the desktop layout (`raw/`, `anatomy/`, `results/`) and calls `run_batch.batch`,
+`derive()` and `summarise.main` unchanged, so web and desktop numbers are identical (checked on 6 SL-2026-004 images,
+2026-10-29: every measurement column equal). One GPU worker measures projects in turn.
+
+```bash
+.venv/bin/pip install -r web/requirements-web.txt
+.venv/bin/python web/server.py invite someone@example.com [--admin]   # prints their login link
+.venv/bin/python web/server.py serve --port 8000                       # data in $CSA_DATA (default ./web_data)
+```
+Done: invite-only accounts (only the token hash is stored), projects, folder upload (folders become groups), queued
+GPU measuring with progress, image + outline layers with pan/zoom, per-image numbers, scale, Make results, download zip.
+Next: click editing (cells, metaxylem, stele, file path, quarters) on the server's edit functions; per-user quotas;
+a container for deployment (MU server or a GPU service, whichever IT approves).
+
 ## Editable state
 
 One `.npz` per image: `cells` (uint16 ids), `region` (0 out / 1 root / 2 stele),
