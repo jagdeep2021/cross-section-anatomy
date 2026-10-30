@@ -4,7 +4,8 @@
 
 Buttons:  Open folder...     the experiment folder, its raw/ (images) or anatomy/. Images not measured yet
                              are outlined first (anatomy/ next to the images; progress in the panel;
-                             stop/resume any time), then they open.
+                             stop/resume any time), then they open. Dropping a folder or an image on the
+                             window does the same; anything inside raw/ opens the whole experiment.
           um / pixel         the scale: always typed by you (scale bars are not read)
           Make results       tables + figures -> results/ next to anatomy/
 
@@ -45,7 +46,7 @@ from napari.qt.threading import thread_worker
 from napari.utils.colormaps import DirectLabelColormap
 import re
 import time
-from qtpy.QtCore import QEvent, QProcess, QProcessEnvironment, QSize, Qt, QTimer
+from qtpy.QtCore import QEvent, QObject, QProcess, QProcessEnvironment, QSize, Qt, QTimer
 from qtpy.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QScrollArea, QSizePolicy, QWidget
 from scipy import ndimage as ndi
 from skimage.draw import polygon as fill_polygon
@@ -113,6 +114,28 @@ class WrapBar(QWidget):
         return QSize(sum(b.sizeHint().width() + self.GAP for b in self.boxes) + self.GAP, self.height())
 
 
+class DropToOpen(QObject):
+    """A folder or image dropped anywhere on the window opens like Open folder... (an image: its folder).
+    Without this napari's own opener takes the drop and adds the file as a stray layer, or fails."""
+
+    def __init__(self, open_folder):
+        super().__init__()
+        self.open_folder = open_folder
+
+    def eventFilter(self, obj, e):
+        if e.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove) and e.mimeData().hasUrls():
+            e.acceptProposedAction()
+            return True
+        if e.type() == QEvent.Type.Drop and e.mimeData().hasUrls():
+            paths = [Path(u.toLocalFile()) for u in e.mimeData().urls() if u.isLocalFile()]
+            e.acceptProposedAction()
+            if paths:
+                p = paths[0]
+                QTimer.singleShot(0, lambda: self.open_folder(str(p if p.is_dir() else p.parent)))
+            return True
+        return False
+
+
 class Reviewer:
     def __init__(self, anatomy_dir: Path | None = None, show: bool = True):
         self.dir, self.files, self.i, self.busy = None, [], None, False
@@ -163,10 +186,13 @@ class Reviewer:
         w.errored.connect(lambda e: (setattr(self, "busy", False), self._error(e)))
         w.start()
 
-    def open_folder(self):
-        """One button for everything: pick the experiment folder, its raw/ (images) or its anatomy/.
+    def open_folder(self, d=None):
+        """One button for everything: pick (or drop) the experiment folder, its raw/ (images) or its anatomy/.
         Images not measured yet are measured first (resumes where it stopped), then the images open."""
-        d = self._folder("Choose the experiment folder (or its raw or anatomy folder)")
+        if self.busy:
+            self.info.value = "Busy: wait until the current job is done."
+            return
+        d = d or self._folder("Choose the experiment folder (or its raw or anatomy folder)")
         if not d:
             return
         self.info.value = f"Looking in {d} ..."
@@ -348,7 +374,7 @@ class Reviewer:
     # ---------------------------------------------------------- UI
     def _build_dock(self):
         opn, summ = PushButton(text="Open folder..."), PushButton(text="Make results")
-        opn.changed.connect(self.open_folder)
+        opn.changed.connect(lambda: self.open_folder())
         summ.changed.connect(self.summarise)
         self.scale = FloatSpinBox(value=0, min=0, max=1000, step=0.0001, label="um / pixel")
         self.scale.native.setDecimals(4)
@@ -428,7 +454,11 @@ class Reviewer:
         qv = self.viewer.window._qt_viewer   # napari's own layer panels are not needed
         for d in (qv.dockLayerList, qv.dockLayerControls):
             d.setVisible(False)
-        self.viewer.window._qt_window.statusBar().hide()   # napari's own key hints (1 = eraser ...) contradict ours
+        self.viewer.window._qt_window.statusBar().hide()
+        self._drop = DropToOpen(self.open_folder)       # drag a folder (or an image) onto the window to open it
+        for w in (qv, self.viewer.window._qt_window):
+            w.setAcceptDrops(True)
+            w.installEventFilter(self._drop)   # napari's own key hints (1 = eraser ...) contradict ours
 
         v = self.viewer
         for k, t in enumerate(TARGETS, 1):

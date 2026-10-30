@@ -51,6 +51,9 @@ def locate(folder):
     """Any folder the user picks -> (anatomy_dir or None, image_dir or None).
     Accepts the anatomy folder, the experiment folder (with anatomy/ and/or raw/), or a folder of images."""
     d = Path(folder).resolve()
+    raw = next((p for p in (d, *d.parents) if p.name.lower() == "raw"), None)
+    if raw is not None:                          # anything inside raw/ (e.g. raw/Maize/sibs, or a dropped image's
+        d = raw.parent                           # folder) opens the whole experiment, never a new anatomy/ in raw/
     for a in (d, d / "anatomy"):
         if (a / "settings.json").exists():
             imgs = P.image_dir(a, json.loads((a / "settings.json").read_text()))
