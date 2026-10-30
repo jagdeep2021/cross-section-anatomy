@@ -456,9 +456,11 @@ class Reviewer:
             d.setVisible(False)
         self.viewer.window._qt_window.statusBar().hide()
         self._drop = DropToOpen(self.open_folder)       # drag a folder (or an image) onto the window to open it
-        for w in (qv, self.viewer.window._qt_window):
-            w.setAcceptDrops(True)
-            w.installEventFilter(self._drop)   # napari's own key hints (1 = eraser ...) contradict ours
+        # the welcome screen (shown until images are open) takes drops itself and hands them to napari's opener
+        for w in (qv, getattr(qv, "_welcome_widget", None), self.viewer.window._qt_window):
+            if w is not None:
+                w.setAcceptDrops(True)
+                w.installEventFilter(self._drop)   # napari's own key hints (1 = eraser ...) contradict ours
 
         v = self.viewer
         for k, t in enumerate(TARGETS, 1):
