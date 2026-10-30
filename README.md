@@ -36,6 +36,14 @@ Speed: ~10 s/image with a GPU (Apple silicon, NVIDIA); on a laptop without one (
 tens of minutes per image. Measure there on a fast computer instead: `anatomy/` stores paths relative to itself, so the
 experiment folder (OneDrive) opens anywhere with nothing left to measure.
 
+## Try it
+
+`examples/raw/` holds 4 images (maize sibling and *shr* double, Setaria wild type and *SvSHR1/2* knockout) from
+Ortiz-Ramirez et al. (2021) *Science* 374:1247, doi:10.1126/science.abj2327. Open app, then drag the `examples`
+folder onto the window (or Open folder…). It measures them into `examples/anatomy/` (git-ignored, so a test never
+dirties the repo); the title bar shows the time per image, i.e. how fast this computer is. Delete `examples/anatomy/`
+to run the test again.
+
 ## Editable state
 
 One `.npz` per image: `cells` (uint16 ids), `region` (0 out / 1 root / 2 stele),

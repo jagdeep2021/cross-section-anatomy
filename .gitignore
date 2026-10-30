@@ -3,3 +3,7 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# example run outputs (examples/raw is tracked; what the app makes from it is not)
+examples/anatomy/
+examples/results/
