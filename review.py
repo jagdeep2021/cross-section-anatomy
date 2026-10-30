@@ -482,7 +482,7 @@ class Reviewer:
         with self.ov_op.changed.blocked():
             self.ov_op.value = self.level[t]
         if hasattr(self, "tag"):
-            self.tag.text = {"string": t, "color": TARGETS[t], "size": 11, "translation": [-14, 0]}
+            self.tag.text = {"string": {"constant": t}, "color": TARGETS[t], "size": 11, "translation": [-14, 0]}
 
     def toggle_overlays(self):
         self.hidden = not self.hidden
@@ -652,8 +652,8 @@ class Reviewer:
         """The target's name rides next to the cursor."""
         if self.i is None:
             return
-        self.tag.data = np.array([event.position[-2:]])
-        self.tag.text = {"string": self.target, "color": TARGETS[self.target], "size": 11, "translation": [-14, 0]}
+        self.tag.data = np.array([event.position[-2:]])   # its text is set in set_target ("constant": a bare
+                                                          # string is read as a column name and shows nothing)
 
     def _mouse(self, viewer, event):
         if event.button != 1 or self.i is None:
