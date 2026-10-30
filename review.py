@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -339,6 +340,8 @@ class Reviewer:
                 os.startfile(res)
             elif sys.platform == "darwin":
                 subprocess.Popen(["open", str(res)])
+            elif shutil.which("xdg-open"):
+                subprocess.Popen(["xdg-open", str(res)])
 
         self._run(work, done)
 
