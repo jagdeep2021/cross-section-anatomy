@@ -49,6 +49,14 @@ Both come measured (`anatomy/`), like a student's real data: open app, drag one 
 `anatomy/` and open it again; it measures the 10 images and the title bar shows the time per image. Restore with
 `git checkout examples`.
 
+## Compare two sets of results
+
+`python compare.py <reference.xlsx> <other.xlsx>`: two `anatomy_summary_*.xlsx` of the same images (auto pass vs a
+review, or reviewer vs reviewer). Matches on image_file, compares pixel columns (scale can't fake a difference),
+and writes `compare_<other>_vs_<reference>.xlsx` next to `other`: per trait n changed, mean difference with 95%
+limits of agreement (Bland & Altman 1986), mean |% difference| and Lin's CCC (Lin 1989); per image the values.
+For the examples, the reference is `summarise.py examples/<set>/anatomy` on the untouched (auto) copy from git.
+
 ## Editable state
 
 Saving: Save + next (Shift-S) saves and marks the image `reviewed`; leaving an edited image any other way
