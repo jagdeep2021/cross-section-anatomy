@@ -9,8 +9,8 @@ Buttons:  Open folder...     the experiment folder, its raw/ (images) or anatomy
           um / pixel         the scale: always typed by you (scale bars are not read)
           Make results       tables + figures -> results/ next to anatomy/
 
-Pick what you are editing (keys 1-4; its name follows the cursor):
-  1 Cell   2 Metaxylem   3 Stele   4 File path
+Pick what you are editing (keys 1-6; its name follows the cursor):
+  1 Cell   2 Metaxylem   3 Stele   4 File path   5 Quarters   6 Root (Shift-drag: this outline is the root)
 
 The same four gestures work on every target:
   click              add here      cell / vessel: fills the lumen out to its walls
@@ -58,14 +58,16 @@ import pipeline as P
 import run_batch as RB
 import summarise as SUM
 
-TARGETS = {"Cell": "yellow", "Metaxylem": "red", "Stele": "cyan", "File path": "orange", "Quarters": "white"}
+TARGETS = {"Cell": "yellow", "Metaxylem": "red", "Stele": "cyan", "File path": "orange", "Quarters": "white",
+           "Root": "lime"}
 # the layers each editing target owns: the opacity slider acts on these only
 TARGET_LAYERS = {"Cell": ("cells", "air"), "Metaxylem": ("mx",), "Stele": ("region",),
-                 "File path": ("path", "nums"), "Quarters": ("quads", "qlab")}
+                 "File path": ("path", "nums"), "Quarters": ("quads", "qlab"), "Root": ("root",)}
 CMD = "⌘" if sys.platform == "darwin" else "Ctrl"   # napari's "Control" is Cmd on a Mac
 _KEYS = [("Click", "add"), (f"{CMD}-click", "remove (stele: the whole stele)"), ("Shift-drag", "draw outline, add"),
          (f"{CMD}-Shift-drag", "draw outline, remove"), ("Drag / scroll", "move / zoom"),
-         ("Alt-click", "move spoke (file path)"), ("1 2 3 4 5", "cell, metaxylem, stele, file path, quarters"), (f"5, {CMD}-click a quarter", "drop it (click = back)"),
+         ("Alt-click", "move spoke (file path)"), ("1 2 3 4 5 6", "cell, metaxylem, stele, file path, quarters, root"), (f"5, {CMD}-click a quarter", "drop it (click = back)"),
+         ("6, Shift-drag", "this outline is the root"),
          ("Shift-H", "hide / show outlines"), ("Shift-S", "save + next"), (", .", "previous / next image")]
 HELP = ("<table cellspacing='0' cellpadding='2' style='font-size:12px'>" +
         "".join(f"<tr><td style='color:#ffd479; padding-right:10px'><b>{k}</b></td><td>{v}</td></tr>"
@@ -532,6 +534,8 @@ class Reviewer:
         self.region = lab(region.astype(np.uint8), "region", {None: "transparent", 0: "transparent",
                                                                1: (1, 1, 0, 0.06), 2: (0, 0.9, 1, 0.3)}, 1)
         self.mx = lab(mx, "metaxylem", {None: "red", 0: "transparent"}, 0.6)
+        self.root = lab((region >= 1).astype(np.uint8), "root", {None: "lime", 0: "transparent"}, 0.9)
+        self.root.contour = 3                   # the root's edge only
         self.path = lab(np.zeros_like(cells), "file path", {None: "orangered", 0: "transparent"}, 0.55)
         self.cells = lab(cells, "cells", {None: "yellow", 0: "transparent"}, 0.9)
         self.cells.contour = 1
@@ -608,6 +612,7 @@ class Reviewer:
     # ---------------------------------------------------------- display
     def recompute(self):
         cells, region = self.cells.data, self.region.data
+        self.root.data = (region >= 1).astype(np.uint8)
         props, _, tr = P.derive(cells, region, self.mx.data, self.angle, self._centre())
         props = P.drop_quarters(props, self.dropped)            # graphs and file numbers leave them out
         self.props = props
@@ -771,6 +776,9 @@ class Reviewer:
                 region[m] = 2
         elif t == "File path" and lbl:
             self._path_remove([lbl]) if remove or lbl in self.path_cells else self._path_add([lbl])
+        elif t == "Root":
+            self.info.value += "\nRoot: Shift-drag around the root to set its outline."
+            return
         elif t == "Quarters":                       # Cmd/Ctrl-click = drop this quarter (damaged), click = back in
             q = int(P.quadrant_of(y, x, self._centre(), self.angle))
             self.dropped = self.dropped | {q} if remove else self.dropped - {q}
@@ -800,6 +808,12 @@ class Reviewer:
                 cells[m] = 0                        # a vessel is not a cell
         elif t == "Stele":
             region[m & (region >= 1)] = 1 if remove else 2     # stele stays inside the root
+        elif t == "Root":
+            if remove:
+                region[m] = 0                       # cut this area out of the root
+            else:                                   # this outline is the root: outside goes, the stele inside stays
+                region[~m] = 0
+                region[m & (region == 0)] = 1
         elif t == "File path":
             if remove:
                 self._path_remove(inside)
