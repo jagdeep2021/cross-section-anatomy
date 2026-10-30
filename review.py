@@ -30,6 +30,7 @@ Keys:  1-4 target   Shift-H hide overlays   Shift-S save + next   , previous   .
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -114,15 +115,19 @@ class WrapBar(QWidget):
         return QSize(sum(b.sizeHint().width() + self.GAP for b in self.boxes) + self.GAP, self.height())
 
 
-class DropToOpen(QObject):
+class WindowEvents(QObject):
     """A folder or image dropped anywhere on the window opens like Open folder... (an image: its folder).
-    Without this napari's own opener takes the drop and adds the file as a stray layer, or fails."""
+    Without this napari's own opener takes the drop and adds the file as a stray layer, or fails.
+    Closing the window first keeps the current image's edits."""
 
-    def __init__(self, open_folder):
+    def __init__(self, open_folder, on_close):
         super().__init__()
-        self.open_folder = open_folder
+        self.open_folder, self.on_close = open_folder, on_close
 
     def eventFilter(self, obj, e):
+        if e.type() == QEvent.Type.Close and obj.isWindow():
+            self.on_close()
+            return False
         if e.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove) and e.mimeData().hasUrls():
             e.acceptProposedAction()
             return True
@@ -149,6 +154,7 @@ class Reviewer:
                                "Images not measured yet are measured first.")
 
     def load_experiment(self, d):
+        self.keep()
         d = Path(d)
         if not (d / "settings.json").exists() and (d / "anatomy" / "settings.json").exists():
             d = d / "anatomy"                          # the experiment folder was picked
@@ -353,6 +359,7 @@ class Reviewer:
     def summarise(self):
         if self.dir is None:
             return
+        self.keep()                              # the open image's edits go into the results too
 
         @thread_worker
         def work():
@@ -455,7 +462,7 @@ class Reviewer:
         for d in (qv.dockLayerList, qv.dockLayerControls):
             d.setVisible(False)
         self.viewer.window._qt_window.statusBar().hide()
-        self._drop = DropToOpen(self.open_folder)       # drag a folder (or an image) onto the window to open it
+        self._drop = WindowEvents(self.open_folder, self.keep)   # drag a folder or image in; edits kept on close
         # the welcome screen (shown until images are open) takes drops itself and hands them to napari's opener
         for w in (qv, getattr(qv, "_welcome_widget", None), self.viewer.window._qt_window):
             if w is not None:
@@ -510,6 +517,7 @@ class Reviewer:
     def open(self, i: int):
         if i == self.i:
             return
+        self.keep()
         self.i = i
         f = self.files[i]
         z = np.load(f)
@@ -555,6 +563,23 @@ class Reviewer:
         with self.pick.changed.blocked():
             self.pick.choices = self._choices()
             self.pick.value = self._choices()[i]
+        self._opened = self._state()
+
+    def _state(self):
+        """Everything an edit can change, to tell whether the open image was edited."""
+        h = lambda a: hashlib.blake2b(np.ascontiguousarray(a).tobytes(), digest_size=16).digest()
+        return (h(self.cells.data), h(self.region.data), h(self.mx.data), h(np.asarray(self.spokes, float)),
+                tuple(np.asarray(self.path_q).tolist()), tuple(np.asarray(self.path_cells).tolist()),
+                tuple(sorted(self.dropped)), None if self.centre is None else tuple(np.asarray(self.centre).tolist()))
+
+    def keep(self):
+        """Leaving an image (other image, other folder, Make results, closing) saves it if it was edited:
+        before, only Save + next saved, and moving on with < > , . or the list lost the edits."""
+        if self.i is None or not self.files or getattr(self, "_opened", None) is None:
+            return
+        if self._state() != self._opened:
+            self.save()
+            self.info.value = f"Saved your edits to {Path(self.rel).name}."
 
     def save(self):
         P.save_state(self.files[self.i], self.cells.data.astype(np.uint16), self.region.data.astype(np.uint8),
@@ -564,6 +589,7 @@ class Reviewer:
                      dropped_q=np.array(sorted(self.dropped), np.int16),
                      **({} if self.centre is None else {"centre": np.asarray(self.centre, float)}))
         self.status = "reviewed"
+        self._opened = self._state()
 
     def _centre(self):
         return P.centre_of(self.region.data, self.centre)

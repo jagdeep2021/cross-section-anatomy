@@ -51,6 +51,9 @@ Both come measured (`anatomy/`), like a student's real data: open app, drag one 
 
 ## Editable state
 
+Saving: Save + next (Shift-S) saves and marks the image `reviewed`; leaving an edited image any other way
+(< > , . the image list, another folder, Make results, closing the window) saves it too. An image you only look at stays `auto`.
+
 One `.npz` per image: `cells` (uint16 ids), `region` (0 out / 1 root / 2 stele),
 `mx` (uint16 vessel ids), `status` (`auto` | `reviewed`), `image_file`, `scale_bar_px`,
 `spokes` (4 angles), `path_q` + `path_cells` (quadrant, cell id of each path cell).
