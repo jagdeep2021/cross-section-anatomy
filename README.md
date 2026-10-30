@@ -38,11 +38,16 @@ experiment folder (OneDrive) opens anywhere with nothing left to measure.
 
 ## Try it
 
-`examples/raw/` holds 4 images (maize sibling and *shr* double, Setaria wild type and *SvSHR1/2* knockout) from
-Ortiz-Ramirez et al. (2021) *Science* 374:1247, doi:10.1126/science.abj2327. Open app, then drag the `examples`
-folder onto the window (or Open folder…). It measures them into `examples/anatomy/` (git-ignored, so a test never
-dirties the repo); the title bar shows the time per image, i.e. how fast this computer is. Delete `examples/anatomy/`
-to run the test again.
+Two test experiments, 10 images each, to try the app without OneDrive:
+- `examples/hallie_SL-2026-004/`: maize sibling and *shr* double, Setaria wild type and *SvSHR1/2* knockout, from
+  Ortiz-Ramirez et al. (2021) *Science* 374:1247, doi:10.1126/science.abj2327.
+- `examples/amool_root_tip_to_mature/`: grayscale sections from root tip to mature zone, colour JPG and 16-bit DAPI
+  TIFF (DAPI copies saved with lossless compression; pixels identical to the originals).
+
+Both come measured (`anatomy/`), like a student's real data: open app, drag one of these folders onto the window
+(or Open folder…) and it opens straight into editing, nothing to measure. Speed test: delete that folder's
+`anatomy/` and open it again; it measures the 10 images and the title bar shows the time per image. Restore with
+`git checkout examples`.
 
 ## Editable state
 

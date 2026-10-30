@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# example run outputs (examples/raw is tracked; what the app makes from it is not)
-examples/anatomy/
-examples/results/
+# examples ship measured (anatomy/ masks + settings) so a laptop opens them straight into editing;
+# QC previews and results/ are regenerated, so not tracked
+examples/*/anatomy/qc/
+examples/*/results/
