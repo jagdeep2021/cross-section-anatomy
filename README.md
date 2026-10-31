@@ -88,6 +88,8 @@ Access: share the site address; a new person types name + email and asks, an adm
 panel (that browser then works). Or send a personal login link: `python cloud.py invite <email> [--admin]`.
 Anyone can type any email, so approve only people you know.
 Tested 2026-10-31: login, project, upload, measure, Make results, download.
+Layout as the desktop: one top bar in work order (project, add images, Outline, µm/px, image ▾ ‹ › Save + next,
+Make results), the image, and the right panel. Cells and masks fade separately.
 Editing in the browser (right panel): pick Cell / Vessel / Stele / Path / Quarter / Root (keys 1-6); drag draws, click adds,
 hold Ctrl/⌘ to remove; Space-drag or right-drag moves the view, scroll zooms, F fits. Below: this image's cortex
 pattern (live) and its traits as small bars against the project median (orange = under 2/3 or over 1.5x).

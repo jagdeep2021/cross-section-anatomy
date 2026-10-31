@@ -219,24 +219,27 @@ OVERLAY = {"cell": (80, 255, 120, 200), "root": (255, 220, 0, 255), "stele": (0,
            "mx": (255, 60, 60, 110), "path": (255, 150, 0, 120), "stele_fill": (0, 220, 255, 85)}
 
 
-def overlay_png(d: Path, rel: str) -> Path:
-    """Outlines as a transparent layer over the image: cells, root edge, stele (shaded + edge), metaxylem, spoke cells."""
+def overlay_png(d: Path, rel: str, part: str) -> Path:
+    """One transparent layer over the image, so the page fades them separately (as the desktop's opacities):
+    part "cells" = the cell outlines; "masks" = root edge, stele (shaded + edge), metaxylem and the path cells."""
     key = RB.image_key(Path(rel))
     npz = d / "anatomy" / "masks" / f"{key}.npz"
-    f = _cache(d, key, "overlay2")                 # 2: stele shaded (older cached overlays are not reused)
+    f = _cache(d, key, part)
     if f.exists() and f.stat().st_mtime >= npz.stat().st_mtime:
         return f
     cells, region, mx, _ = P.load_state(npz)
-    _, path_q, path_cells = P.load_paths(npz) or ((), np.array([]), np.array([]))
     rgba = np.zeros((*cells.shape, 4), np.uint8)
-    rgba[region == 2] = OVERLAY["stele_fill"]      # the stele is an area: lightly shaded, its cells still visible
-    rgba[np.isin(cells, path_cells) & (cells > 0)] = OVERLAY["path"]
-    rgba[mx > 0] = OVERLAY["mx"]
-    rgba[find_boundaries(cells, mode="inner") & (cells > 0)] = OVERLAY["cell"]
-    w = max(2, round(max(cells.shape) / 600))      # root and stele edges thick enough to see on a whole-image view
-    edge = lambda m: ndi.binary_dilation(find_boundaries(m, mode="inner") & m, iterations=w) & m
-    rgba[edge(region >= 1)] = OVERLAY["root"]
-    rgba[edge(region == 2)] = OVERLAY["stele"]
+    if part == "cells":
+        rgba[find_boundaries(cells, mode="inner") & (cells > 0)] = OVERLAY["cell"]
+    else:
+        _, path_q, path_cells = P.load_paths(npz) or ((), np.array([]), np.array([]))
+        rgba[region == 2] = OVERLAY["stele_fill"]      # the stele is an area: lightly shaded, its cells still visible
+        rgba[np.isin(cells, path_cells) & (cells > 0)] = OVERLAY["path"]
+        rgba[mx > 0] = OVERLAY["mx"]
+        w = max(2, round(max(cells.shape) / 600))      # root and stele edges thick enough to see on a whole-image view
+        edge = lambda m: ndi.binary_dilation(find_boundaries(m, mode="inner") & m, iterations=w) & m
+        rgba[edge(region >= 1)] = OVERLAY["root"]
+        rgba[edge(region == 2)] = OVERLAY["stele"]
     Image.fromarray(rgba, "RGBA").save(f, optimize=True)
     return f
 
@@ -382,10 +385,10 @@ def image(name: str, kind: str, rel: str, u: dict = Depends(user)):
     rel = _safe_rel(rel).as_posix()
     if kind == "gray":
         return FileResponse(gray_png(d, rel), headers={"Cache-Control": "no-cache"})
-    if kind == "overlay":
+    if kind in ("cells", "masks"):
         if not (d / "anatomy" / "masks" / f"{RB.image_key(Path(rel))}.npz").exists():
             raise HTTPException(404, "Not measured yet")
-        return FileResponse(overlay_png(d, rel), headers={"Cache-Control": "no-cache"})
+        return FileResponse(overlay_png(d, rel, kind), headers={"Cache-Control": "no-cache"})
     raise HTTPException(404)
 
 
@@ -520,6 +523,17 @@ def edit(name: str, rel: str = Form(...), target: str = Form(...), points: str =
         P.outline_edit(cells, region, mx, target, m, remove)
     P.save_edit(npz, cells=cells, region=region, mx=mx)
     return {**traits(name, rel, u), "note": note}
+
+
+@app.post("/api/projects/{name}/reviewed")
+def reviewed(name: str, rel: str = Form(...), u: dict = Depends(user)):
+    """Save + next: the image is checked (status reviewed), edited or not, as review.py's Save + next."""
+    d = _project(u, name)
+    npz = d / "anatomy" / "masks" / f"{RB.image_key(Path(_safe_rel(rel)))}.npz"
+    if not npz.exists():
+        raise HTTPException(404, "Not measured yet")
+    P.save_edit(npz)
+    return {"ok": True}
 
 
 @app.post("/api/projects/{name}/scale")

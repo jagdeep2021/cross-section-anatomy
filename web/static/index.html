@@ -15,14 +15,31 @@
   * { box-sizing:border-box; }
   html, body { height:100%; margin:0; }
   body { background:var(--bg); color:var(--ink); font:14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
-         display:grid; grid-template-columns:280px 1fr 290px; grid-template-rows:auto 1fr; }
+         display:grid; grid-template-columns:1fr 290px; grid-template-rows:auto auto auto 1fr; }
   header { grid-column:1 / -1; display:flex; align-items:center; gap:12px; padding:10px 16px;
            border-bottom:1px solid var(--line); background:var(--panel); }
   header h1 { font-size:16px; margin:0; font-weight:600; }
   header .who { margin-left:auto; color:var(--muted); font-size:13px; }
-  aside, .side { background:var(--panel); overflow:auto; padding:14px; }
-  aside { border-right:1px solid var(--line); }
-  .side { border-left:1px solid var(--line); }
+  .side { background:var(--panel); overflow:auto; padding:14px; border-left:1px solid var(--line); }
+  /* top bar: every control, left to right in the order of the work (as in the desktop app) */
+  nav { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:6px; padding:7px 10px; background:var(--panel);
+        border-bottom:1px solid var(--line); align-items:center; }
+  .grp { display:flex; gap:5px; align-items:center; border:1px solid var(--line); border-radius:8px; padding:4px 6px;
+         font-size:13px; }
+  .grp > .lab { color:var(--muted); font-size:12px; padding:0 2px; }
+  .grp select { width:auto; max-width:260px; }
+  #pick { max-width:210px; }
+  #projSel { max-width:130px; }
+  .grp progress { width:120px; margin:0; }
+  .status { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:4px 14px; padding:0 14px; font-size:12px;
+            color:var(--muted); background:var(--panel); border-bottom:1px solid var(--line); }
+  .status:not(:has(:not(:empty))) { display:none; }
+  .status > * { padding:4px 0; }
+  .status .err { color:var(--warn); }
+  .people { position:relative; margin-left:auto; }
+  .people summary { cursor:pointer; color:var(--muted); font-size:12px; list-style:none; }
+  .people .pop { position:absolute; right:0; top:28px; z-index:5; width:380px; background:var(--panel);
+                 border:1px solid var(--line); border-radius:8px; padding:8px; box-shadow:0 6px 24px rgba(0,0,0,.18); }
   [hidden] { display:none !important; }   /* a class's display rule must not unhide it (it covered the image) */
   h2 { font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin:0 0 8px; font-weight:600; }
   button, select, input { font:inherit; color:inherit; }
@@ -42,26 +59,14 @@
   .msg.err { color:var(--warn); }
   progress { width:100%; height:8px; margin-top:6px; }
 
-  /* left: the four steps as small cards */
-  .step { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px; margin-top:10px; }
-  .step h3 { display:flex; align-items:center; gap:8px; font-size:13px; margin:0 0 8px; font-weight:600; }
-  .step h3 i { font-style:normal; width:18px; height:18px; border-radius:50%; background:var(--accent);
-               color:var(--accent-ink); font-size:11px; display:grid; place-items:center; flex:0 0 18px; }
-  .step .row > button { flex:1; }
-  label.file { flex:1; display:flex; }
-  label.file button { flex:1; }
+  label.file { display:flex; }
   label.file input { display:none; }
-  label.check { display:flex; gap:6px; align-items:center; font-size:12px; color:var(--muted); margin-top:6px; }
-  #figList a { display:block; margin-top:6px; color:var(--accent); font-size:13px; }
+  label.check { display:flex; gap:4px; align-items:center; font-size:12px; color:var(--muted); }
+  #figList a { color:var(--accent); margin-right:10px; }
   .list { list-style:none; margin:0; padding:0; }
-  .list li { padding:4px 8px; border-radius:6px; cursor:pointer; display:flex; gap:6px; align-items:center;
-             overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:13px; }
-  .list li:hover { background:var(--chip); }
-  .list li.on { background:var(--accent); color:var(--accent-ink); }
+  .list li { padding:4px 8px; border-radius:6px; display:flex; gap:6px; align-items:center; font-size:13px; }
   .dot { width:8px; height:8px; border-radius:50%; flex:0 0 8px; background:var(--line); }
   .dot.auto { background:#d9a400; } .dot.reviewed { background:#2f9e5c; }
-  details summary { cursor:pointer; color:var(--muted); font-size:12px; margin-top:14px; }
-  #peopleList li { cursor:default; white-space:normal; }
   #peopleList li span { flex:1; overflow:hidden; text-overflow:ellipsis; }
 
   /* centre: the image */
@@ -97,8 +102,8 @@
   .gate { grid-column:1 / -1; max-width:420px; margin:48px auto; padding:0 16px; }
   .gate input { margin:4px 0 10px; }
   @media (max-width: 900px) {
-    body { grid-template-columns:1fr; grid-template-rows:auto auto 60vh auto; }
-    aside, .side { border:0; border-bottom:1px solid var(--line); }
+    body { grid-template-columns:1fr; grid-template-rows:auto auto auto 60vh auto; }
+    .side { border:0; border-top:1px solid var(--line); }
   }
 </style>
 </head>
@@ -107,69 +112,46 @@
   <img src="/icon.png" alt="" width="24" height="24">
   <h1>Root cross-section anatomy</h1>
   <span class="who" id="who"></span>
+  <details class="people" style="margin-left:0" id="peoplePanel" hidden><summary>People</summary>
+    <div class="pop"><ul class="list" id="peopleList"></ul>
+    <div class="msg">Approve only people you know: anyone can type any email.</div></div>
+  </details>
 </header>
 
-<aside>
-  <h2>Project</h2>
-  <div class="row">
-    <select id="projSel" class="grow"></select>
-    <button id="projAdd" title="New project">+ New</button>
+<nav>
+  <div class="grp">
+    <select id="projSel"></select><button id="projAdd" title="New project">+</button>
+    <span id="projNewRow" class="row" hidden><input type="text" id="projName" placeholder="new project name" style="width:150px">
+      <button class="primary" id="projNew">Create</button></span>
   </div>
-  <div class="row" id="projNewRow" hidden>
-    <input type="text" id="projName" class="grow" placeholder="Name of the new project">
-    <button class="primary" id="projNew">Create</button>
+  <div class="grp" data-proj hidden>
+    <span class="lab">add</span><label class="file"><button type="button" onclick="this.nextElementSibling.click()" title="Add a folder of images (sub-folders become groups)">Folder…</button><input type="file" id="upDir" webkitdirectory multiple></label>
+    <label class="file"><button type="button" onclick="this.nextElementSibling.click()">Files…</button><input type="file" id="upFiles" multiple accept=".tif,.tiff,.png,.jpg,.jpeg"></label>
+    <button class="primary" id="measure" title="Outline the images not outlined yet">Outline</button>
+    <progress id="prog" value="0" max="1" hidden></progress>
   </div>
-
-  <div id="projPanel" hidden>
-    <div class="step">
-      <h3><i>1</i>Add images</h3>
-      <div class="row">
-        <label class="file"><button type="button" onclick="this.nextElementSibling.click()">Folder…</button><input type="file" id="upDir" webkitdirectory multiple></label>
-        <label class="file"><button type="button" onclick="this.nextElementSibling.click()">Files…</button><input type="file" id="upFiles" multiple accept=".tif,.tiff,.png,.jpg,.jpeg"></label>
-      </div>
-      <div class="msg">Folders become groups: Maize / sibs / P1 / x.tif = species, genotype, plant.</div>
-    </div>
-
-    <div class="step">
-      <h3><i>2</i>Outline</h3>
-      <div class="row"><button class="primary" id="measure">Outline new images</button></div>
-      <progress id="prog" value="0" max="1" hidden></progress>
-      <div class="msg" id="jobMsg"></div>
-    </div>
-
-    <div class="step">
-      <h3><i>3</i>Scale <span class="muted small" style="font-weight:400">µm per pixel</span></h3>
-      <div class="row">
-        <input type="number" id="scale" step="0.0001" min="0" placeholder="0.7194" style="width:72px;flex:0 0 72px">
-        <select id="scaleWho" class="grow" title="Which images get this scale"><option value="img">image</option><option value="grp">group</option><option value="all">all</option></select>
-        <button id="scaleSet">Set</button>
-      </div>
-      <div class="msg" id="scaleMsg"></div>
-    </div>
-
-    <div class="step">
-      <h3><i>4</i>Results</h3>
-      <div class="row"><button class="primary" id="results">Make results</button><button id="download">Download</button></div>
-      <label class="check"><input type="checkbox" id="perImage"> also a cortex graph per image (slower)</label>
-      <div class="msg" id="resMsg"></div>
-      <div id="figList"></div>
-    </div>
-
-    <h2 style="margin-top:16px">Images <span id="count"></span></h2>
-    <ul class="list" id="imgList"></ul>
+  <div class="grp" data-proj hidden>
+    <span class="lab">µm/px</span>
+    <input type="number" id="scale" step="0.0001" min="0" placeholder="0.7194" style="width:76px">
+    <button id="scaleAll" title="This scale for every image">All</button><button id="scaleImg" title="This scale for this image only">Image</button>
   </div>
-  <details id="peoplePanel" hidden>
-    <summary>People</summary>
-    <ul class="list" id="peopleList"></ul>
-    <div class="msg">Approve only people you know: anyone can type any email.</div>
-  </details>
-  <div class="msg err" id="err"></div>
-</aside>
+  <div class="grp" data-proj hidden>
+    <select id="pick" title="Image (● checked, ○ to check)"></select>
+    <button id="prev" title="Previous image ( , )">‹</button><button id="next" title="Next image ( . )">›</button>
+    <button class="primary" id="saveNext" title="Mark this image checked and open the next one (Shift-S)">Save + next</button>
+    <span class="lab" id="count"></span>
+  </div>
+  <div class="grp" data-proj hidden>
+    <button id="results" title="The project's Excel files and graphs">Make results</button><button id="download">Download</button>
+    <label class="check" title="Also one cortex pattern graph per image (slower)"><input type="checkbox" id="perImage">per image</label>
+  </div>
+</nav>
+<div class="status"><span id="jobMsg"></span><span id="scaleMsg"></span><span id="resMsg"></span><span id="figList"></span><span id="err" class="err"></span></div>
 
 <main id="view">
   <canvas id="cv"></canvas>
   <div class="empty" id="empty">Pick a project, add images, then Outline new images.</div>
-  <div class="hint"><span>drag = draw · click = add · ⌘/Ctrl = remove · Space-drag = move · scroll = zoom · F = fit · O = outlines · ← → images</span></div>
+  <div class="hint"><span>drag = draw · click = add · ⌘/Ctrl = remove · Space-drag = move · scroll = zoom · F = fit · O = outlines · , . = images · Shift-S = save + next</span></div>
 </main>
 
 <section class="side" style="border-top:0">
@@ -184,7 +166,9 @@
   </div>
   <div class="tip" id="tip"></div>
   <div class="keys"><b>Drag</b> draws · <b>click</b> adds · hold <b>⌘/Ctrl</b> to remove instead</div>
-  <div class="row view"><span>Outlines</span><input type="range" id="ovOp" min="0" max="1" step="0.05" value="1"><button id="fitBtn" title="Fit the image (F)">Fit</button></div>
+  <div class="row view"><span style="width:44px">Cells</span><input type="range" id="opCells" min="0" max="1" step="0.05" value="1" title="Cell outlines">
+    <button id="fitBtn" title="Fit the image (F)">Fit</button></div>
+  <div class="row view"><span style="width:44px">Masks</span><input type="range" id="opMasks" min="0" max="1" step="0.05" value="1" title="Root, stele, vessels, paths, quarters"><span style="width:36px"></span></div>
   <div class="msg" id="editMsg"></div>
 
   <section>
@@ -224,7 +208,7 @@ async function loadProjects(pick) {
 }
 async function openProject(name) {
   S.project = name || null;
-  $("projPanel").hidden = !name;
+  document.querySelectorAll("[data-proj]").forEach(g => g.hidden = !name);
   try { localStorage.setItem("csa.project", name || ""); } catch (_) {}
   if (name) await refresh(true);
 }
@@ -233,11 +217,12 @@ async function refresh(first) {
   const keep = S.images[S.i]?.image;
   S.images = p.images;
   const done = p.images.filter(im => im.status === "reviewed").length;
-  $("count").textContent = p.images.length ? `· ${p.images.length}, ${done} checked` : "";
-  $("imgList").innerHTML = p.images.map((im, k) =>
-    `<li data-k="${k}" title="${im.image}"><span class="dot ${im.status.replace(" ", "-")}"></span>${im.image}</li>`).join("");
+  $("count").textContent = p.images.length ? `${done}/${p.images.length} ✓` : "";
+  $("count").title = `${done} of ${p.images.length} images checked`;
+  const sym = { reviewed: "●", auto: "○", "not measured": "–" };
+  $("pick").innerHTML = p.images.map((im, k) => `<option value="${k}">${sym[im.status] || "○"}  ${im.image}</option>`).join("");
   job(p.job);
-  $("resMsg").textContent = p.results.length ? "Latest: " + p.results.join(", ") : "";
+  $("resMsg").textContent = p.results.length ? "Results: " + p.results.join(", ") : "";
   $("figList").innerHTML = (p.figures || []).filter(f => !f.includes("/")).map(f =>   // group graphs
     `<a target="_blank" href="/api/projects/${enc(S.project)}/figure?path=${enc(f)}&t=${Date.now()}">📈 ${figName(f)}</a>`).join("");
   loadTraits();
@@ -280,23 +265,22 @@ async function upload(files) {
     $("jobMsg").textContent = `Uploading ${Math.min(k + 10, imgs.length)} of ${imgs.length}…`;
     await api(`/api/projects/${enc(S.project)}/upload`, { method: "POST", body: f });
   }
-  $("jobMsg").textContent = `${imgs.length} image(s) added. Next: Outline new images.`;
+  $("jobMsg").textContent = `${imgs.length} image(s) added. Next: Outline new.`;
   await refresh();
 }
 $("upDir").onchange = e => upload(e.target.files).catch(showErr);
 $("upFiles").onchange = e => upload(e.target.files).catch(showErr);
 $("measure").onclick = async () => { try { job(await api(`/api/projects/${enc(S.project)}/measure`, { method: "POST" })); } catch (e) { showErr(e); } };
 
-$("scaleSet").onclick = async () => {
-  const im = S.images[S.i], v = parseFloat($("scale").value), which = $("scaleWho").value;
+async function setScale(all) {
+  const im = S.images[S.i], v = parseFloat($("scale").value);
   if (!(v > 0)) return showErr("Type the scale first (µm per pixel).");
-  const body = { um_per_px: v, group: "", rel: "" };
-  if (which !== "all" && !im) return showErr("Open an image first.");
-  if (which === "img") body.rel = im.image;
-  if (which === "grp") body.group = im.image.split("/")[0];
-  try { const r = await api(`/api/projects/${enc(S.project)}/scale`, form(body));
+  if (!all && !im) return showErr("Open an image first.");
+  try { const r = await api(`/api/projects/${enc(S.project)}/scale`, form({ um_per_px: v, group: "", rel: all ? "" : im.image }));
         $("scaleMsg").textContent = `${v} µm/px set for ${r.set} image(s).`; await refresh(); } catch (e) { showErr(e); }
-};
+}
+$("scaleAll").onclick = () => setScale(true);
+$("scaleImg").onclick = () => setScale(false);
 $("results").onclick = async () => {
   $("results").disabled = true; $("resMsg").textContent = "Making the Excel files and graphs…";
   try { const r = await api(`/api/projects/${enc(S.project)}/results`, form({ image_figures: $("perImage").checked }));
@@ -309,11 +293,25 @@ $("download").onclick = () => { location.href = `/api/projects/${enc(S.project)}
 
 // ---------------------------------------------------------------- viewer
 const cv = $("cv"), ctx = cv.getContext("2d");
-function mark(k) {
-  S.i = k;
-  document.querySelectorAll("#imgList li").forEach(li => li.classList.toggle("on", +li.dataset.k === k));
-  document.querySelector(`#imgList li[data-k="${k}"]`)?.scrollIntoView({ block: "nearest" });
+function mark(k) { S.i = k; $("pick").value = k; }
+async function saveNext() {                       // as the desktop: this image is checked, open the next unchecked one
+  const im = S.images[S.i];
+  if (!im || im.status === "not measured") return;
+  try {
+    await api(`/api/projects/${enc(S.project)}/reviewed`, form({ rel: im.image }));
+    await refresh();
+    const n = S.images.length;
+    for (let k = 1; k <= n; k++) {
+      const j = (S.i + k) % n;
+      if (S.images[j].status === "auto") return show(j);
+    }
+    $("editMsg").textContent = "All images checked. Click Make results.";
+  } catch (e) { showErr(e); }
 }
+$("pick").onchange = e => show(+e.target.value).catch(showErr);
+$("prev").onclick = () => show(S.i - 1).catch(showErr);
+$("next").onclick = () => show(S.i + 1).catch(showErr);
+$("saveNext").onclick = saveNext;
 function load(src) { return new Promise((ok, no) => { const im = new Image(); im.onload = () => ok(im); im.onerror = no; im.src = src; }); }
 async function show(k) {
   if (k < 0 || k >= S.images.length) return;
@@ -324,9 +322,10 @@ async function show(k) {
   $("empty").hidden = true;
   const fresh = !S.gray;
   S.gray = await load(`${base}/image/gray${q}`);
-  S.ov = im.status === "not measured" ? null : await load(`${base}/image/overlay${q}`).catch(() => null);
-  if (fresh || S.gray.width !== S.lastW) fit();
-  S.lastW = S.gray.width;
+  const out = im.status === "not measured";
+  [S.ovC, S.ovM] = await Promise.all(["cells", "masks"].map(k => out ? null : load(`${base}/image/${k}${q}`).catch(() => null)));
+  if (fresh || k !== S.shown) fit();               // a new image opens fitted; an edit keeps the zoom
+  S.shown = k;
   S.quarters = null;
   draw();
   if (im.status !== "not measured") S.quarters = (await api(`${base}/traits${q}`)).quarters;
@@ -387,7 +386,8 @@ function draw() {
   const { s, x, y } = S.view;
   ctx.imageSmoothingEnabled = s < 1;
   ctx.drawImage(S.gray, x, y, S.gray.width * s, S.gray.height * s);
-  if (S.ov && S.showOv) { ctx.globalAlpha = +$("ovOp").value; ctx.drawImage(S.ov, x, y, S.ov.width * s, S.ov.height * s); ctx.globalAlpha = 1; }
+  for (const [ov, op] of [[S.ovC, "opCells"], [S.ovM, "opMasks"]])   // cells and masks fade separately
+    if (ov && S.showOv) { ctx.globalAlpha = +$(op).value; ctx.drawImage(ov, x, y, ov.width * s, ov.height * s); ctx.globalAlpha = 1; }
   if (S.quarters && S.showOv) drawQuarters();
   if (S.pen && S.pen.moved && S.pen.pts.length > 1) {   // the outline being drawn (image px -> screen)
     ctx.beginPath();
@@ -402,7 +402,7 @@ function drawQuarters() {                         // as in the desktop app: whit
   const { s, x, y } = S.view, { centre: [cy, cx], angle, dropped, spokes } = S.quarters;   // (the file paths),
   const L = Math.max(S.gray.width, S.gray.height), R = 0.42 * Math.min(S.gray.width, S.gray.height);  // grey = dropped
   const at = (t, r) => [x + (cx + r * Math.cos(t * Math.PI / 180)) * s, y + (cy - r * Math.sin(t * Math.PI / 180)) * s];
-  ctx.save(); ctx.globalAlpha = +$("ovOp").value;
+  ctx.save(); ctx.globalAlpha = +$("opMasks").value;
   ctx.beginPath(); ctx.rect(x, y, S.gray.width * s, S.gray.height * s); ctx.clip();   // lines stop at the image edge
   for (const q of dropped) {
     ctx.beginPath(); ctx.moveTo(...at(0, 0));
@@ -449,7 +449,6 @@ async function applyEdit(pts, remove, move) {
       points: JSON.stringify(pts.map(([py, px]) => [Math.round(py * 10) / 10, Math.round(px * 10) / 10])),
       remove, move: !!move }));
     im.status = "reviewed";
-    document.querySelector(`#imgList li[data-k="${S.i}"] .dot`)?.setAttribute("class", "dot reviewed");
     S.pen = null;
     await show(S.i);                             // new outlines, graph and traits
     await refresh();                             // the image list and its "checked" count
@@ -489,16 +488,16 @@ cv.addEventListener("pointerup", () => {
   else S.pen = null;
 });
 cv.addEventListener("contextmenu", e => e.preventDefault());   // Ctrl-click on a Mac must not open a menu
-addEventListener("resize", draw);
-$("ovOp").oninput = draw;
+new ResizeObserver(() => { if (S.gray) fit(); draw(); }).observe(cv);   // the image area changed size: refit
+$("opCells").oninput = $("opMasks").oninput = draw;
 $("fitBtn").onclick = () => { if (S.gray) { fit(); draw(); } };
-$("imgList").onclick = e => { const li = e.target.closest("li"); if (li) show(+li.dataset.k).catch(showErr); };
 const KEYS = { 1: "Cell", 2: "Metaxylem", 3: "Stele", 4: "File path", 5: "Quarters", 6: "Root" };
 addEventListener("keydown", e => {
   if (["INPUT", "SELECT"].includes(e.target.tagName)) return;
   if (e.key === " ") { e.preventDefault(); S.space = true; cv.classList.add("pan"); }
-  if (e.key === "ArrowRight") show(S.i + 1).catch(showErr);
-  if (e.key === "ArrowLeft") show(S.i - 1).catch(showErr);
+  if (e.key === "ArrowRight" || e.key === ".") show(S.i + 1).catch(showErr);
+  if (e.key === "ArrowLeft" || e.key === ",") show(S.i - 1).catch(showErr);
+  if (e.key === "S" && e.shiftKey) saveNext();
   if (e.key === "o" || e.key === "O") { S.showOv = !S.showOv; draw(); }
   if ((e.key === "f" || e.key === "F") && S.gray) { fit(); draw(); }
   if (KEYS[e.key]) setTarget(KEYS[e.key]);
@@ -512,8 +511,7 @@ async function loadPeople() {
   ps.sort((a, b) => a.approved - b.approved || a.email.localeCompare(b.email));
   $("peopleList").innerHTML = "";
   const waiting = ps.filter(p => !p.approved).length;
-  $("peoplePanel").querySelector("summary").textContent = "People" + (waiting ? ` · ${waiting} waiting for approval` : "");
-  if (waiting) $("peoplePanel").open = true;
+  $("peoplePanel").querySelector("summary").textContent = "People" + (waiting ? ` · ${waiting} waiting` : "");
   for (const p of ps) {
     const li = document.createElement("li");
     const who = document.createElement("span");
