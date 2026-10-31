@@ -138,6 +138,7 @@
     <span><i style="background:rgb(0,220,255)"></i>stele</span>
     <span><i style="background:rgb(255,60,60)"></i>metaxylem</span>
     <span><i style="background:rgb(255,150,0)"></i>file path</span>
+    <span><i style="background:#fff"></i>quarters</span>
   </div>
   <h2>Edit</h2>
   <div class="seg" id="target">
@@ -145,13 +146,15 @@
     <button type="button" data-t="Metaxylem">Mx <span class="muted">2</span></button>
     <button type="button" data-t="Stele" class="on">Stele <span class="muted">3</span></button>
     <button type="button" data-t="Root">Root <span class="muted">6</span></button>
+    <button type="button" data-t="Quarters">Qtr <span class="muted">5</span></button>
   </div>
   <div class="keys" id="keys">
     <b>Click</b>: add a cell / vessel (fills to its walls)<br>
     <b>Ctrl/⌘-click</b>: remove the cell / vessel under the cursor<br>
     <b>Shift-drag</b>: draw it · <b>Ctrl/⌘-Shift-drag</b>: clear the area<br>
     Stele, Root: Shift-drag the outline (replaces the old one)<br>
-    File path, quarters: desktop app for now
+    Qtr: ⌘/Ctrl-click a quarter to drop it (damaged), click to bring it back<br>
+    File path: desktop app for now
   </div>
   <div class="msg" id="editMsg"></div>
   <h2>This image</h2>
@@ -287,10 +290,11 @@ async function show(k) {
   if (fresh || S.gray.width !== S.lastW) fit();
   S.lastW = S.gray.width;
   draw();
-  $("traits").innerHTML = "";
+  $("traits").innerHTML = ""; S.quarters = null;
   if (im.status !== "not measured") {
     const t = await api(`${base}/traits${q}`), um = im.um_per_px;
-    const rows = [["status", t.status], ["files per quarter", t.files_per_quarter.join(" / ")],
+    S.quarters = t.quarters; draw();
+    const rows = [["status", t.status], ["files per quarter", t.files_per_quarter.map(n => n ?? "–").join(" / ")],
       ["cortical layers", t.n_cortical_layers], ["cortex cells", t.n_cortex_cells], ["air spaces", t.n_air_spaces],
       ["metaxylem", t.mx_n],
       um ? ["root area (mm²)", (t.root_area_px * um * um / 1e6).toFixed(3)] : ["root area (px)", t.root_area_px],
@@ -324,6 +328,7 @@ function draw() {
   ctx.imageSmoothingEnabled = s < 1;
   ctx.drawImage(S.gray, x, y, S.gray.width * s, S.gray.height * s);
   if (S.ov && S.showOv) { ctx.globalAlpha = +$("ovOp").value; ctx.drawImage(S.ov, x, y, S.ov.width * s, S.ov.height * s); ctx.globalAlpha = 1; }
+  if (S.quarters && S.showOv) drawQuarters();
   if (S.pen && S.pen.pts.length > 1) {          // the outline being drawn (image px -> screen)
     ctx.beginPath();
     S.pen.pts.forEach(([py, px], k) => k ? ctx.lineTo(x + px * s, y + py * s) : ctx.moveTo(x + px * s, y + py * s));
@@ -332,6 +337,28 @@ function draw() {
     ctx.strokeStyle = S.pen.remove ? "#ff5a5a" : COLOR[S.target];
     ctx.stroke(); ctx.setLineDash([]);
   }
+}
+function drawQuarters() {                         // as in the desktop app: white quarter lines, orange spokes
+  const { s, x, y } = S.view, { centre: [cy, cx], angle, dropped, spokes } = S.quarters;   // (the file paths),
+  const L = Math.max(S.gray.width, S.gray.height), R = 0.42 * Math.min(S.gray.width, S.gray.height);  // grey = dropped
+  const at = (t, r) => [x + (cx + r * Math.cos(t * Math.PI / 180)) * s, y + (cy - r * Math.sin(t * Math.PI / 180)) * s];
+  ctx.save(); ctx.globalAlpha = +$("ovOp").value;
+  ctx.beginPath(); ctx.rect(x, y, S.gray.width * s, S.gray.height * s); ctx.clip();   // lines stop at the image edge
+  for (const q of dropped) {
+    ctx.beginPath(); ctx.moveTo(...at(0, 0));
+    for (let k = 0; k <= 18; k++) ctx.lineTo(...at(angle + 90 * (q - 1) + 5 * k, L));
+    ctx.closePath(); ctx.fillStyle = "rgba(128,128,128,0.5)"; ctx.fill();
+  }
+  const ray = (t, color, w) => { ctx.beginPath(); ctx.moveTo(...at(t, 0)); ctx.lineTo(...at(t, L)); ctx.strokeStyle = color; ctx.lineWidth = w; ctx.stroke(); };
+  for (let k = 0; k < 4; k++) ray(angle + 90 * k, "rgba(255,255,255,0.9)", 1.5);
+  spokes.forEach((t, k) => { if (!dropped.includes(k + 1)) ray(t, "rgba(255,150,0,0.9)", 1.5); });
+  ctx.font = "600 13px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (let q = 1; q <= 4; q++) {
+    const [lx, ly] = at(angle + 90 * (q - 1) + 45, R), txt = "Q" + q + (dropped.includes(q) ? " dropped" : "");
+    ctx.fillStyle = "rgba(0,0,0,0.6)"; const w = ctx.measureText(txt).width + 10; ctx.fillRect(lx - w / 2, ly - 10, w, 20);
+    ctx.fillStyle = "#fff"; ctx.fillText(txt, lx, ly);
+  }
+  ctx.restore();
 }
 const COLOR = { Cell: "rgb(80,255,120)", Metaxylem: "rgb(255,60,60)", Stele: "rgb(0,220,255)", Root: "rgb(255,220,0)" };
 function toImg(e) {                              // screen -> image pixel (y, x)
@@ -367,7 +394,7 @@ cv.addEventListener("pointerdown", e => {
   e.preventDefault();                            // no text selection on Shift-click
   cv.setPointerCapture(e.pointerId);
   const im = S.images[S.i];
-  if (e.shiftKey && im && im.status !== "not measured" && !S.saving) {
+  if (e.shiftKey && S.target !== "Quarters" && im && im.status !== "not measured" && !S.saving) {
     showErr(""); S.pen = { pts: [toImg(e)], remove: e.ctrlKey || e.metaKey, live: true, last: [e.clientX, e.clientY] };
     return;
   }
@@ -407,6 +434,7 @@ addEventListener("keydown", e => {
   if (e.key === "2") setTarget("Metaxylem");
   if (e.key === "3") setTarget("Stele");
   if (e.key === "6") setTarget("Root");
+  if (e.key === "5") setTarget("Quarters");
 });
 
 // ---------------------------------------------------------------- people (admins)

@@ -197,8 +197,38 @@ def add_cell(gray, cells, y, x) -> int:
     return new
 
 
+def vessel_at(gray: np.ndarray, y: int, x: int, max_area: int):
+    """A vessel's dark lumen around a click, or None. Vessel walls often have gaps, so a plain flood (lumen_at) runs
+    out into the neighbours and fell back to a 10 px dot: here the dark pixels near the click (Otsu in a window) are
+    cut at narrow gaps by an opening of growing size until the click's piece is closed and small enough, then tails
+    are trimmed and holes filled."""
+    r = int(np.sqrt(max_area / np.pi) * 1.5)
+    y0, x0 = max(y - r, 0), max(x - r, 0)
+    win = filters.gaussian(gray[y0:y + r + 1, x0:x + r + 1], 1.5)
+    dark = win < filters.threshold_otsu(win)
+    cy, cx = y - y0, x - x0
+    for k in (0, 2, 4, 6, 9, 12):
+        m = ndi.binary_opening(dark, morphology.disk(k)) if k else dark
+        if not m[cy, cx]:
+            return None
+        lab, _ = ndi.label(m)
+        reg = lab == lab[cy, cx]
+        if reg.sum() <= max_area and not (reg[0].any() or reg[-1].any() or reg[:, 0].any() or reg[:, -1].any()):
+            trim = ndi.binary_opening(reg, morphology.disk(max(k, 4)))      # tails along wall gaps
+            if trim[cy, cx]:
+                lab, _ = ndi.label(trim)
+                reg = lab == lab[cy, cx]
+            reg = ndi.binary_dilation(ndi.binary_fill_holes(reg), morphology.disk(2))   # out to mid-wall
+            out = np.zeros(gray.shape, bool)
+            out[y0:y0 + reg.shape[0], x0:x0 + reg.shape[1]] = reg
+            return out
+    return None
+
+
 def add_mx(gray, mx, cells, y, x) -> int:
-    reg = lumen_at(gray, y, x, 60 * typical_cell_area(cells))
+    reg = vessel_at(gray, y, x, 60 * typical_cell_area(cells))
+    if reg is None:                                  # not dark under the click: the old fill (or a small dot)
+        reg = lumen_at(gray, y, x, 60 * typical_cell_area(cells))
     new = int(mx.max()) + 1
     mx[reg & (mx == 0)] = new
     cells[reg] = 0

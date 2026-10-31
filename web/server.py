@@ -396,11 +396,14 @@ def traits(name: str, rel: str, u: dict = Depends(user)):
     npz = d / "anatomy" / "masks" / f"{RB.image_key(Path(_safe_rel(rel)))}.npz"
     cells, region, mx, status = P.load_state(npz)
     settings = json.loads((d / "anatomy" / "settings.json").read_text())
-    props, _, tr = P.derive(cells, region, mx, float(settings.get("quadrant_angle_deg", 0)),
-                            P.centre_of(region, P.load_centre(npz)))
-    _, path_q, _ = P.load_paths(npz) or ((), np.array([]), None)
-    tr["files_per_quarter"] = [int((np.asarray(path_q) == q).sum()) for q in (1, 2, 3, 4)]
+    angle, centre, dropped = float(settings.get("quadrant_angle_deg", 0)), P.centre_of(region, P.load_centre(npz)), P.load_dropped(npz)
+    props, _, tr = P.derive(cells, region, mx, angle, centre)
+    spokes, path_q, _ = P.load_paths(npz) or (np.array([]), np.array([]), None)
+    tr["files_per_quarter"] = [None if q in dropped else int((np.asarray(path_q) == q).sum()) for q in (1, 2, 3, 4)]
     tr["status"] = status
+    # for drawing the quarter lines, the file-path spokes and dropped quarters on the page (as review.py does)
+    tr["quarters"] = {"centre": [float(c) for c in centre], "angle": angle, "dropped": list(dropped),
+                      "spokes": [float(t) for t in np.asarray(spokes).ravel()]}
     return {k: (None if isinstance(v, float) and np.isnan(v) else v) for k, v in tr.items()}
 
 
@@ -415,12 +418,20 @@ def edit(name: str, rel: str = Form(...), target: str = Form(...), points: str =
     npz = d / "anatomy" / "masks" / f"{RB.image_key(Path(rel))}.npz"
     if not npz.exists():
         raise HTTPException(404, "Not measured yet")
-    if target not in ("Cell", "Metaxylem", "Stele", "Root"):
+    if target not in ("Cell", "Metaxylem", "Stele", "Root", "Quarters"):
         raise HTTPException(400, f"Editing {target} in the browser is not available yet: use the desktop app.")
     pts = np.asarray(json.loads(points), float)
     if pts.ndim != 2 or pts.shape[1] != 2 or len(pts) in (0, 2):
         raise HTTPException(400, "Click, or hold Shift and drag around the area.")
     cells, region, mx, _ = P.load_state(npz)
+    if target == "Quarters":                 # click = this quarter back in, Ctrl/Cmd-click = drop it (damaged tissue)
+        settings = json.loads((d / "anatomy" / "settings.json").read_text())
+        y, x = pts[0]
+        q = int(P.quadrant_of(y, x, P.centre_of(region, P.load_centre(npz)), float(settings.get("quadrant_angle_deg", 0))))
+        dropped = set(P.load_dropped(npz))
+        dropped = dropped | {q} if remove else dropped - {q}
+        P.save_edit(npz, dropped_q=np.array(sorted(dropped), np.int16))
+        return {**traits(name, rel, u), "note": f"Q{q} " + ("dropped from the results." if q in dropped else "in the results.")}
     cells, region, mx = cells.copy(), region.copy(), mx.copy()
     note = ""
     if len(pts) == 1:

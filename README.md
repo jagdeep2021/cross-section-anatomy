@@ -89,8 +89,9 @@ panel (that browser then works). Or send a personal login link: `python cloud.py
 Anyone can type any email, so approve only people you know.
 Tested 2026-10-31: login, project, upload, measure, Make results, download.
 Editing in the browser: Cell (1), Metaxylem (2) by click / Ctrl-⌘-click / Shift-drag; Stele (3) and Root (6) are
-outlines: Shift-drag draws the new one (replaces the old). Graphs from Make results show under Results and beside each image.
-Same rules as the desktop (`pipeline.click_edit` / `outline_edit`, shared). Next: file path and quarters; per-user quotas;
+outlines: Shift-drag draws the new one (replaces the old). Quarters (5): lines, spokes and Q labels drawn; Ctrl-⌘-click drops a
+quarter, click brings it back. Graphs from Make results show under Results and beside each image.
+Same rules as the desktop (`pipeline.click_edit` / `outline_edit`, shared). Next: file path; per-user quotas;
 a container for deployment (MU server or a GPU service, whichever IT approves).
 
 ## Editable state
