@@ -31,7 +31,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 import numpy as np
-from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
@@ -45,7 +45,7 @@ import summarise as SUM   # noqa: E402
 
 DATA = Path(os.environ.get("CSA_DATA", Path(__file__).resolve().parent.parent / "web_data")).resolve()
 STATIC = Path(__file__).resolve().parent / "static"
-app = FastAPI(title="Root cross-section anatomy")
+app = FastAPI(title="JadNaksha")
 COMMIT = [lambda: None]                 # persists the data after a change (set on Modal: the volume's commit)
 RELOAD = [lambda: None]                 # sees changes made elsewhere, e.g. an invite (set on Modal: volume reload)
 
@@ -276,8 +276,30 @@ def me(u: dict = Depends(_signed_in)):
             "approved": u.get("approved", True)}
 
 
+def _notify(name: str, email: str, site: str):
+    """Email the admin about a new access request (Gmail + app password from the Modal secret csa-mail:
+    GMAIL_USER, GMAIL_APP_PASSWORD, optional MAIL_TO). No secret = no email; the request still waits in People."""
+    user, pw = os.environ.get("GMAIL_USER"), os.environ.get("GMAIL_APP_PASSWORD")
+    if not (user and pw):
+        return
+    import smtplib
+    from email.message import EmailMessage
+    m = EmailMessage()
+    m["From"], m["To"] = user, os.environ.get("MAIL_TO", user)
+    m["Subject"] = f"JadNaksha: {' '.join(name.split())} asks for access"
+    m.set_content(f"{name} ({email}) asked to use JadNaksha.\n\n"
+                  f"Approve or remove them under People: {site}\n\n"
+                  "Approve only people you know: the name and email are typed by the asker, not checked.")
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as smtp:
+            smtp.login(user, pw)
+            smtp.send_message(m)
+    except Exception as e:                       # a failed email never fails the request
+        print(f"[mail] not sent: {e}", flush=True)
+
+
 @app.post("/api/join")
-def join(name: str = Form(""), email: str = Form("")):
+def join(request: Request, name: str = Form(""), email: str = Form("")):
     """Ask for access from the page itself: this browser gets a cookie that works once an admin approves it.
     Anyone can ask, so an admin approves only people they know (the email is typed by the asker, not checked)."""
     name, email = name.strip()[:80], email.strip().lower()[:120]
@@ -290,6 +312,7 @@ def join(name: str = Form(""), email: str = Form("")):
     users[_hash(token)] = {"email": email, "name": name, "admin": False, "approved": False,
                            "requested": time.strftime("%Y-%m-%d %H:%M")}
     _save_users(users)
+    threading.Thread(target=_notify, args=(name, email, str(request.base_url)), daemon=True).start()
     r = Response(status_code=204)
     r.set_cookie("csa", token, httponly=True, samesite="lax", max_age=180 * 24 * 3600)
     return r

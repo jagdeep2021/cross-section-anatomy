@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Root cross-section anatomy</title>
+<title>JadNaksha</title>
 <link rel="icon" href="/icon.png">
 <style>
   :root { --bg:#f6f5f2; --panel:#ffffff; --ink:#22231f; --muted:#6c6d66; --line:#dddcd5; --accent:#2f6b4f;
@@ -19,6 +19,7 @@
   header { grid-column:1 / -1; display:flex; align-items:center; gap:12px; padding:10px 16px;
            border-bottom:1px solid var(--line); background:var(--panel); }
   header h1 { font-size:16px; margin:0; font-weight:600; }
+  header h1 .sub { font-size:13px; font-weight:400; color:var(--muted); margin-left:6px; }
   header .who { margin-left:auto; color:var(--muted); font-size:13px; }
   .side { background:var(--panel); overflow:auto; padding:14px; border-left:1px solid var(--line); }
   /* top bar: every control, left to right in the order of the work (as in the desktop app) */
@@ -113,7 +114,7 @@
 <body>
 <header>
   <img src="/icon.png" alt="" width="24" height="24">
-  <h1>Root cross-section anatomy</h1>
+  <h1>JadNaksha <span class="sub">ਜੜ੍ਹ ਨਕਸ਼ਾ · root map</span></h1>
   <span class="who" id="who"></span>
   <details class="people" style="margin-left:0" id="peoplePanel" hidden><summary>People</summary>
     <div class="pop"><ul class="list" id="peopleList"></ul>
@@ -566,7 +567,7 @@ async function loadPeople() {
 
 // ---------------------------------------------------------------- start
 function gate(html) { document.body.innerHTML = `<header><img src="/icon.png" alt="" width="24" height="24">
-  <h1>Root cross-section anatomy</h1></header><div class="gate">${html}</div>`; }
+  <h1>JadNaksha <span class="sub">ਜੜ੍ਹ ਨਕਸ਼ਾ · root map</span></h1></header><div class="gate">${html}</div>`; }
 
 function askForAccess() {
   gate(`<h2>Ask for access</h2>
