@@ -205,7 +205,7 @@ async function refresh(first) {
   $("resMsg").textContent = p.results.length ? "Latest: " + p.results.join(", ") : "";
   S.figures = p.figures || [];
   $("figList").innerHTML = S.figures.filter(f => !f.includes("/")).map(f =>       // group figures (per-image ones show beside the image)
-    `<a target="_blank" href="/api/projects/${enc(S.project)}/figure?path=${enc(f)}&t=${Date.now()}">📈 ${f.replace(/\.png$/, "")}</a>`).join("");
+    `<a target="_blank" href="/api/projects/${enc(S.project)}/figure?path=${enc(f)}&t=${Date.now()}">📈 ${figName(f)}</a>`).join("");
   if (S.i >= 0) imgFigure();
   const k = keep ? S.images.findIndex(im => im.image === keep) : -1;
   if (k >= 0) mark(k);
@@ -303,6 +303,10 @@ async function show(k) {
     $("traits").innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("");
   }
   imgFigure();
+}
+function figName(f) {                           // traits_Maize_2026-10-31.png -> "Traits · Maize (2026-10-31)"
+  const m = f.match(/^(traits|cortex_pattern)_(.+)_(\d{4}-\d{2}-\d{2})\.png$/);
+  return m ? `${m[1] === "traits" ? "Traits (bar graphs)" : "Cortex pattern"} · ${m[2]}  (${m[3]})` : f.replace(/\.png$/, "");
 }
 function imgFigure() {                            // this image's cortex pattern figure, from the last Make results
   const im = S.images[S.i], f = im && "cortex_pattern/" + im.image.replace(/\.[^.]+$/, "").replaceAll("/", "__") + ".png";

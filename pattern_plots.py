@@ -216,3 +216,56 @@ def group_figure(pf, cells, group_col, species, y_col, y_lab, out, note=""):
     fig.tight_layout(rect=(0, 0.03, 1, 1))
     fig.savefig(out, dpi=200)
     plt.close(fig)
+
+
+# whole-root traits for the bar graph: column stem -> (label, unit in µm, unit in px, divide µm value by)
+BAR_TRAITS = {"n_files": ("Cortical cell files", "", "", 1), "n_cortex_cells": ("Cortical cells", "", "", 1),
+              "mean_cortex_cell_area": ("Mean cortical cell area", "µm²", "px²", 1),
+              "cortex_width": ("Cortex width", "µm", "px", 1), "root_area": ("Root area", "mm²", "px²", 1e6),
+              "stele_area": ("Stele area", "mm²", "px²", 1e6), "cortex_area": ("Cortex area", "mm²", "px²", 1e6),
+              "mx_n": ("Metaxylem vessels", "", "", 1), "mx_mean_area": ("Mean metaxylem area", "µm²", "px²", 1),
+              "air_space_total_area": ("Air space area", "µm²", "px²", 1)}
+
+
+def trait_bars(pp, group_col, species, um, out, note=""):
+    """pp: per_plant rows of one species. One panel per trait (own axis and unit): bar = mean of plants per group,
+    whisker = ± 1 SE across plants, dots = plants. um: use the µm columns (else px)."""
+    groups = sorted(pp[group_col].dropna().unique(), key=str)
+    items = []
+    for stem, (lab, u_um, u_px, div) in BAR_TRAITS.items():
+        col = stem if stem in pp else f"{stem}_{'um2' if 'area' in stem else 'um'}" if um else f"{stem}_px"
+        if col in pp and pp[col].notna().any():
+            items.append((col, lab, (u_um if um else u_px), div if um else 1))
+    if not items or not groups:
+        return
+    nc = 5
+    nr = int(np.ceil(len(items) / nc))
+    fig, axs = plt.subplots(nr, nc, figsize=(2.3 * nc, 2.6 * nr + 0.4), squeeze=False)
+    rng = np.random.default_rng(0)
+    for ax, (col, lab, unit, div) in zip(axs.flat, items):
+        for i, g in enumerate(groups):
+            v = pp.loc[pp[group_col] == g, col].dropna().to_numpy() / div
+            if not len(v):
+                continue
+            c = GCOL[i % len(GCOL)]
+            ax.bar(i, v.mean(), width=0.62, color=c, alpha=0.35, edgecolor=c, linewidth=1)
+            if len(v) > 1:
+                se = v.std(ddof=1) / np.sqrt(len(v))
+                ax.errorbar(i, v.mean(), yerr=se, color=INK, capsize=3, lw=1)
+            ax.scatter(i + rng.uniform(-0.12, 0.12, len(v)), v, s=14, color=c, edgecolor="white", linewidth=0.6, zorder=3)
+        ax.set_xticks(range(len(groups)), [str(g) for g in groups], rotation=30 if len(groups) > 3 else 0,
+                      ha="right" if len(groups) > 3 else "center", fontsize=8)
+        ax.set_title(lab, fontsize=9.5)
+        ax.set_ylabel(unit, fontsize=8)
+        ax.tick_params(axis="y", labelsize=8)
+        ax.grid(axis="y", color=GRID, lw=0.8)
+        ax.set_axisbelow(True)
+    for ax in list(axs.flat)[len(items):]:
+        ax.axis("off")
+    n = ", ".join(f"{g} n = {pp.loc[pp[group_col] == g, 'plant'].nunique()}" for g in groups)
+    fig.suptitle(species, x=0.01, ha="left", fontsize=13, fontweight="bold", color=INK)
+    fig.text(0.01, 0.005, f"Bar = mean of plants, whisker ± 1 SE, dot = one plant (its images averaged). {n}.{note}",
+             fontsize=8, color=MUTED)
+    fig.tight_layout(rect=(0, 0.03, 1, 0.97))
+    fig.savefig(out, dpi=200)
+    plt.close(fig)
