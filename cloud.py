@@ -24,6 +24,10 @@ PKGS = ([l.strip() for l in (HERE / "requirements.txt").read_text().splitlines()
         if modal.is_local() else [])            # read when building on this computer; the server has no requirements.txt
 
 app = modal.App(APP)
+if not modal.is_local():
+    # load the pipeline (numpy, scipy, skimage) when a machine starts, not inside a request: a request cancelled
+    # mid-import left numpy half-loaded and every later call on that machine failed (RecursionError)
+    import pipeline  # noqa: F401
 
 
 def _fetch_model():
@@ -86,7 +90,8 @@ web_image = (modal.Image.debian_slim(python_version="3.13")
              .pip_install(*WEB_PKGS)
              .env({"CSA_DATA": "/data"})
              .add_local_python_source("pipeline", "run_batch", "summarise", "pattern_plots")
-             .add_local_dir(HERE / "web", "/root/web"))
+             .add_local_dir(HERE / "web", "/root/web")
+             .add_local_file(HERE / "icon.png", "/root/icon.png"))
 
 
 def _propose_on_gpu(path, diameter=None):

@@ -362,8 +362,14 @@ def set_scale(name: str, um_per_px: float = Form(...), group: str = Form(""), re
     """Scale for one image (rel) or every image whose first folder is group ('' = all images)."""
     import pandas as pd
     d = _project(u, name)
+    if not any((d / "anatomy" / "masks").glob("*.npz")):
+        raise HTTPException(400, "Measure the images first (Outline new images), then set the scale.")
     f = SUM.write_samples(d / "anatomy")
     s = pd.read_excel(f, dtype={"image_file": str, "plant": str})
+    if "image_file" not in s:               # samples.xlsx written before any image was measured: rebuild it
+        f.unlink()
+        f = SUM.write_samples(d / "anatomy")
+        s = pd.read_excel(f, dtype={"image_file": str, "plant": str})
     rows = (s.image_file == rel) if rel else (s.image_file.str.split("/").str[0] == group) if group else s.image_file.notna()
     s.loc[rows, "um_per_px"] = um_per_px if um_per_px > 0 else np.nan
     s.to_excel(f, index=False)
