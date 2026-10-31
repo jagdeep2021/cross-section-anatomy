@@ -258,7 +258,7 @@ def login(token: str):
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC / "index.html")
+    return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})   # a reload gets a new deploy
 
 
 @app.get("/icon.png")
