@@ -45,7 +45,9 @@
   .msg.err { color:var(--warn); }
   progress { width:100%; height:10px; }
   main { position:relative; overflow:hidden; background:#0d0d0c; }
-  main canvas { position:absolute; inset:0; width:100%; height:100%; cursor:grab; }
+  [hidden] { display:none !important; }   /* a class's display rule must not unhide it (it covered the image) */
+  main { user-select:none; -webkit-user-select:none; }
+  main canvas { touch-action:none;  position:absolute; inset:0; width:100%; height:100%; cursor:grab; }
   main .hint { position:absolute; left:12px; bottom:10px; color:#bbb; font-size:12px; pointer-events:none; }
   main .empty { position:absolute; inset:0; display:grid; place-items:center; color:#999; padding:24px; text-align:center; }
   dl { display:grid; grid-template-columns:1fr auto; gap:3px 10px; margin:0; font-variant-numeric:tabular-nums; }
@@ -326,6 +328,7 @@ cv.addEventListener("wheel", e => {
 }, { passive: false });
 let drag = null;
 cv.addEventListener("pointerdown", e => {
+  e.preventDefault();                            // no text selection on Shift-click
   cv.setPointerCapture(e.pointerId);
   const im = S.images[S.i];
   if (e.shiftKey && im && im.status !== "not measured" && !S.saving) {
