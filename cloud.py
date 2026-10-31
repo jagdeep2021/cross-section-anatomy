@@ -108,9 +108,8 @@ def _propose_on_gpu(path, diameter=None):
 
 
 @app.function(image=web_image, volumes={"/data": web_data}, cpu=2, memory=4096, max_containers=1,
-              scaledown_window=900, timeout=24 * 3600)
-# once the Modal secret csa-mail exists (Gmail for "X asks for access" emails, see server._notify), add to the line
-# above: secrets=[modal.Secret.from_name("csa-mail")]   (deploy fails while it names a secret that doesn't exist)
+              scaledown_window=900, timeout=24 * 3600,
+              secrets=[modal.Secret.from_name("csa-mail")])   # Gmail for "X asks for access" emails (server._notify)
 @modal.concurrent(max_inputs=50)
 @modal.asgi_app(label="rooh")   # the site address: https://jagdeep2021--rooh.modal.run
 def web():
