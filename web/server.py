@@ -6,7 +6,8 @@ users look (and, next, correct), set the scale and download the result tables.
 
 Each project is a folder in the desktop layout (raw/, anatomy/, results/), so run_batch.py and summarise.py run
 unchanged and a project can be copied out and opened in the desktop app. Data lives in $CSA_DATA (default ./web_data):
-  users.json                          token hash -> {email, admin}
+  users.json                          token hash -> {email, admin, [name, approved, requested]}
+                                      (asked on the page: approved False until an admin approves it)
   projects/<user>/<project>/raw/      uploaded images (sub-folders kept: they become group_1, group_2 ...)
                             anatomy/  masks/*.npz, qc/, samples.xlsx, settings.json (written by run_batch)
                             results/  written by summarise
@@ -69,18 +70,23 @@ def _hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def _save_users(users: dict):
+    DATA.mkdir(parents=True, exist_ok=True)
+    (DATA / "users.json").write_text(json.dumps(users, indent=2))
+
+
 def invite(email: str, admin: bool = False) -> str:
     """New login token for a person. Only its hash is stored, so a lost link is replaced, never recovered."""
     users = _users()
     users = {h: u for h, u in users.items() if u["email"] != email}     # re-inviting replaces the old link
     token = secrets.token_urlsafe(24)
     users[_hash(token)] = {"email": email, "admin": admin}
-    DATA.mkdir(parents=True, exist_ok=True)
-    (DATA / "users.json").write_text(json.dumps(users, indent=2))
+    _save_users(users)
     return token
 
 
-def user(csa: str | None = Cookie(default=None)) -> dict:
+def _signed_in(csa: str | None = Cookie(default=None)) -> dict:
+    """The person behind this browser's cookie, approved or still waiting."""
     u = _users().get(_hash(csa)) if csa else None
     if u is None and csa:                # a new invite was written by another machine: look once more
         try:
@@ -90,6 +96,18 @@ def user(csa: str | None = Cookie(default=None)) -> dict:
         u = _users().get(_hash(csa))
     if u is None:
         raise HTTPException(401, "Not signed in: open your login link again.")
+    return u
+
+
+def user(u: dict = Depends(_signed_in)) -> dict:
+    if not u.get("approved", True):      # invited people have no flag: approved
+        raise HTTPException(403, "Your request is waiting for Jagdeep to approve it.")
+    return u
+
+
+def admin(u: dict = Depends(user)) -> dict:
+    if not u.get("admin"):
+        raise HTTPException(403, "Only an admin can do this.")
     return u
 
 
@@ -249,8 +267,51 @@ def icon():
 
 
 @app.get("/api/me")
-def me(u: dict = Depends(user)):
-    return u
+def me(u: dict = Depends(_signed_in)):
+    return {"email": u["email"], "name": u.get("name", ""), "admin": u.get("admin", False),
+            "approved": u.get("approved", True)}
+
+
+@app.post("/api/join")
+def join(name: str = Form(""), email: str = Form("")):
+    """Ask for access from the page itself: this browser gets a cookie that works once an admin approves it.
+    Anyone can ask, so an admin approves only people they know (the email is typed by the asker, not checked)."""
+    name, email = name.strip()[:80], email.strip().lower()[:120]
+    if not name or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise HTTPException(400, "Enter your name and email.")
+    users = _users()
+    if sum(not u.get("approved", True) for u in users.values()) >= 50:
+        raise HTTPException(429, "Too many requests waiting. Ask Jagdeep directly.")
+    token = secrets.token_urlsafe(24)
+    users[_hash(token)] = {"email": email, "name": name, "admin": False, "approved": False,
+                           "requested": time.strftime("%Y-%m-%d %H:%M")}
+    _save_users(users)
+    r = Response(status_code=204)
+    r.set_cookie("csa", token, httponly=True, samesite="lax", max_age=180 * 24 * 3600)
+    return r
+
+
+@app.get("/api/people")
+def people(_: dict = Depends(admin)):
+    return [{"id": h[:16], "email": u["email"], "name": u.get("name", ""), "admin": u.get("admin", False),
+             "approved": u.get("approved", True), "requested": u.get("requested", "")}
+            for h, u in _users().items()]
+
+
+@app.post("/api/people/{pid}/{action}")
+def person(pid: str, action: str, me: dict = Depends(admin)):
+    users = _users()
+    h = next((h for h in users if h.startswith(pid)), None)
+    if h is None or len(pid) < 16 or action not in ("approve", "remove"):
+        raise HTTPException(404, "No such person.")
+    if action == "approve":
+        users[h]["approved"] = True
+    elif users[h]["email"] == me["email"] and users[h].get("admin"):
+        raise HTTPException(400, "You can't remove your own admin login.")
+    else:
+        del users[h]                     # their projects stay on the server; only the login goes
+    _save_users(users)
+    return {"ok": True}
 
 
 @app.get("/api/projects")

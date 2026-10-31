@@ -83,7 +83,10 @@ Done: invite-only accounts (only the token hash is stored), projects, folder upl
 GPU measuring with progress, image + outline layers with pan/zoom, per-image numbers, scale, Make results, download zip.
 Live: https://jagdeep2021--cross-section-anatomy-web.us-east.modal.run (deployed from `cloud.py` with
 `modal deploy cloud.py`; a CPU machine serves the page, measuring goes to the GPU function, projects live on the
-Modal volume `csa-web-data`, saved after every change). Login links: `python cloud.py invite <email> [--admin]`.
+Modal volume `csa-web-data`, saved after every change).
+Access: share the site address; a new person types name + email and asks, an admin approves them in the People
+panel (that browser then works). Or send a personal login link: `python cloud.py invite <email> [--admin]`.
+Anyone can type any email, so approve only people you know.
 Tested 2026-10-31: login, project, upload, measure, Make results, download.
 Editing in the browser: Stele and Root by Shift-drag (Ctrl/⌘-Shift-drag removes; keys 3 / 6), same rules as the
 desktop (`pipeline.edit_region`, shared). Next: click editing for (cells, metaxylem, stele, file path, quarters) on the server's edit functions; per-user quotas;

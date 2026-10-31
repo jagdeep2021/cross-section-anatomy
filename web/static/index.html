@@ -62,6 +62,10 @@
   .keys { font-size:12px; color:var(--muted); line-height:1.5; }
   .keys b { color:var(--ink); font-weight:600; }
   label.file { display:inline-block; }
+  #peopleList li { cursor:default; white-space:normal; }
+  #peopleList li span { flex:1; overflow:hidden; text-overflow:ellipsis; }
+  .gate { grid-column:1 / -1; max-width:420px; margin:48px auto; padding:0 16px; }
+  .gate input { margin:4px 0 10px; }
   label.file input { display:none; }
   @media (max-width: 900px) {
     body { grid-template-columns:1fr; grid-template-rows:auto auto 60vh auto; }
@@ -105,6 +109,11 @@
 
     <h2>Images <span class="muted" id="count"></span></h2>
     <ul class="list" id="imgList"></ul>
+  </div>
+  <div id="peoplePanel" hidden>
+    <h2>People</h2>
+    <ul class="list" id="peopleList"></ul>
+    <div class="msg">Approve only people you know: anyone can type any email.</div>
   </div>
   <div class="msg err" id="err"></div>
 </aside>
@@ -365,18 +374,66 @@ addEventListener("keydown", e => {
   if (e.key === "6") setTarget("Root");
 });
 
+// ---------------------------------------------------------------- people (admins)
+async function loadPeople() {
+  const ps = await api("/api/people");
+  ps.sort((a, b) => a.approved - b.approved || a.email.localeCompare(b.email));
+  $("peopleList").innerHTML = "";
+  for (const p of ps) {
+    const li = document.createElement("li");
+    const who = document.createElement("span");
+    who.textContent = (p.name ? p.name + " · " : "") + p.email + (p.admin ? " (admin)" : "");
+    who.title = p.requested ? "asked " + p.requested : "";
+    li.append(Object.assign(document.createElement("i"), { className: "dot " + (p.approved ? "reviewed" : "auto") }), who);
+    const act = (label, action, cls) => {
+      const b = Object.assign(document.createElement("button"), { textContent: label, className: cls || "" });
+      b.onclick = async () => {
+        if (action === "remove" && !confirm(`Remove ${p.email}'s login? Their projects stay on the server.`)) return;
+        try { await api(`/api/people/${p.id}/${action}`, { method: "POST" }); await loadPeople(); } catch (e) { showErr(e); }
+      };
+      li.append(b);
+    };
+    if (!p.approved) act("Approve", "approve", "primary");
+    if (!p.admin) act(p.approved ? "Remove" : "Decline", "remove");
+    $("peopleList").append(li);
+  }
+}
+
 // ---------------------------------------------------------------- start
+function gate(html) { document.body.innerHTML = `<header><img src="/icon.png" alt="" width="24" height="24">
+  <h1>Root cross-section anatomy</h1></header><div class="gate">${html}</div>`; }
+
+function askForAccess() {
+  gate(`<h2>Ask for access</h2>
+    <p class="muted">Jagdeep approves each person. Use this same browser afterwards: it remembers you.</p>
+    <label>Your name<input type="text" id="jName" autocomplete="name"></label>
+    <label>Your email<input type="text" id="jEmail" autocomplete="email"></label>
+    <button class="primary" id="jGo">Ask for access</button><div class="msg err" id="err"></div>`);
+  $("jGo").onclick = async () => {
+    try {
+      await api("/api/join", form({ name: $("jName").value, email: $("jEmail").value }));
+      waiting();
+    } catch (e) { showErr(e); }
+  };
+}
+
+function waiting() {
+  gate(`<h2>Request sent</h2><p>Jagdeep will approve it. Then reload this page in this same browser.</p>
+    <button id="jRe">Reload</button>`);
+  $("jRe").onclick = () => location.reload();
+}
+
 (async () => {
+  let me;
+  try { me = await api("/api/me"); } catch (e) { return askForAccess(); }
+  if (!me.approved) return waiting();
   try {
-    const me = await api("/api/me");
     $("who").textContent = me.email;
+    if (me.admin) { $("peoplePanel").hidden = false; await loadPeople(); }
     let last = ""; try { last = localStorage.getItem("csa.project") || ""; } catch (_) {}
     await loadProjects();
     if (last && [...$("projSel").options].some(o => o.value === last)) { $("projSel").value = last; await openProject(last); }
-  } catch (e) {
-    document.body.innerHTML = `<p style="padding:24px">You are not signed in. Open the login link you were sent
-      (ask Jagdeep for one).</p>`;
-  }
+  } catch (e) { showErr(e); }
 })();
 </script>
 </body>
