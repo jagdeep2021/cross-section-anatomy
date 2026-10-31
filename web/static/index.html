@@ -595,7 +595,7 @@ function waiting() {
   if (!me.approved) return waiting();
   try {
     $("who").textContent = me.email;
-    if (me.admin) { $("peoplePanel").hidden = false; await loadPeople(); }
+    if (me.admin) { $("peoplePanel").hidden = false; await loadPeople(); if (location.hash === "#people") $("peoplePanel").open = true; }
     let last = ""; try { last = localStorage.getItem("csa.project") || ""; } catch (_) {}
     await loadProjects();
     if (last && [...$("projSel").options].some(o => o.value === last)) { $("projSel").value = last; await openProject(last); }

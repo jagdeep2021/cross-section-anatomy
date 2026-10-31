@@ -288,7 +288,7 @@ def _notify(name: str, email: str, site: str):
     m["From"], m["To"] = user, os.environ.get("MAIL_TO", user)
     m["Subject"] = f"Rooh: {' '.join(name.split())} asks for access"
     m.set_content(f"{name} ({email}) asked to use Rooh.\n\n"
-                  f"Approve or remove them under People: {site}\n\n"
+                  f"Approve or remove them here (opens the People list; you must be signed in as admin in that browser): {site}#people\n\n"
                   "Approve only people you know: the name and email are typed by the asker, not checked.")
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as smtp:
