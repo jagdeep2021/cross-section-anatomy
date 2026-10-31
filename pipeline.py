@@ -8,7 +8,8 @@ Everything else (tissue of each cell, cortical layer, areas) is derived by deriv
 so a hand correction only ever touches those three arrays.
 
 Auto pass (propose):
-  1. gray   : percentile stretch + CLAHE, max over colour channels
+  1. gray   : percentile stretch + CLAHE, max over colour channels; brightfield (dark walls on a bright field)
+              is inverted to bright walls and its black frame blanked
   2. cells  : Cellpose (cpsam)
   3. root   : walls (Li threshold) + cells, closed, filled, largest object
   4. stele  : small-cell cluster near the centre (Otsu on log cell area), convex hull
@@ -40,10 +41,29 @@ def read_plane(path) -> np.ndarray:
     return im
 
 
+def is_brightfield(im: np.ndarray) -> bool:
+    """Dark walls on a bright field (brightfield, e.g. colour JPGs from a microscope camera) rather than bright walls
+    on a dark background (fluorescence, DAPI). The background is the most common brightness of the blurred image,
+    a black frame around a circular field left out: ~0.99 brightfield, <= 0.55 in every fluorescence image so far."""
+    sm = ndi.uniform_filter(im, 31)
+    h, e = np.histogram(sm[sm > 0.05], 50, (0, 1))
+    return h.sum() > 0 and e[np.argmax(h)] > 0.8
+
+
 def load_gray(path) -> np.ndarray:
+    """0-1 grey image with bright walls on a dark background, whatever the microscope gave: the auto pass and the
+    click tools look for bright walls, so a brightfield image is inverted and its black frame (outside the circular
+    field) blanked, else the bright field itself would be taken for the root."""
     im = read_plane(path).astype(float)
     lo, hi = np.percentile(im, (1, 99.8))
     im = np.clip((im - lo) / max(hi - lo, 1e-9), 0, 1)
+    if is_brightfield(im):
+        dark = ndi.uniform_filter(im, 15) < 0.05
+        lab, _ = ndi.label(dark)
+        edge = np.unique(np.r_[lab[0], lab[-1], lab[:, 0], lab[:, -1]])
+        frame = np.isin(lab, edge[edge > 0])            # black areas touching the image edge
+        im = 1 - im
+        im[frame] = 0
     return exposure.equalize_adapthist(im, clip_limit=0.02)
 
 
