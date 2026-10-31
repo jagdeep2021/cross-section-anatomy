@@ -68,9 +68,11 @@ def n_to_measure(image_dir, anatomy_dir) -> int:
     return sum(not (Path(anatomy_dir) / "masks" / f"{image_key(r)}.npz").exists() for r in list_images(Path(image_dir)))
 
 
-def batch(image_dir, out_dir=None, diameter=None, redo=False, on_start=None):
+def batch(image_dir, out_dir=None, diameter=None, redo=False, on_start=None, propose=None):
     """Outline every image; yields (i, n, line) per image so a caller can show progress.
-    Writes samples.xlsx at the end. Returns (StopIteration value) the anatomy folder."""
+    Writes samples.xlsx at the end. Returns (StopIteration value) the anatomy folder.
+    propose: the outlining step (default pipeline.propose; cloud.propose runs it on a rented GPU)."""
+    propose = propose or P.propose
     image_dir = Path(image_dir).resolve()
     out = Path(out_dir or image_dir.parent / "anatomy").resolve()
     s = load_settings(out, image_dir, diameter=diameter)
@@ -88,7 +90,7 @@ def batch(image_dir, out_dir=None, diameter=None, redo=False, on_start=None):
         if on_start:
             on_start(i, len(imgs), rel)
         t = time.time()
-        gray, cells, region, mx = P.propose(image_dir / rel, s.get("diameter"))
+        gray, cells, region, mx = propose(image_dir / rel, s.get("diameter"))
         props, _, tr = P.derive(cells, region, mx, s.get("quadrant_angle_deg", 0))
         spokes, pq, pc = P.auto_paths(cells, region, props, s.get("quadrant_angle_deg", 0))
         P.save_state(npz, cells, region, mx, status="auto", image_file=rel.as_posix(),
@@ -125,17 +127,23 @@ def main():
     ap.add_argument("--diameter", type=float)
     ap.add_argument("--redo", action="store_true", help="re-propose images that are still 'auto' (never overwrites reviewed ones)")
     ap.add_argument("--background", action="store_true", help="low priority, one core free (used by the app)")
+    ap.add_argument("--cloud", action="store_true", help="outline on Modal's GPU (see cloud.py), not this computer")
     a = ap.parse_args()
     if a.background:
         be_polite()
-    try:                                         # the app shows this: no GPU means minutes per image, not seconds
-        import torch
-        dev = "gpu" if torch.cuda.is_available() or torch.backends.mps.is_available() else "cpu"
-    except Exception:
-        dev = "cpu"
-    print(f"[device] {dev}", flush=True)
+    propose = None
+    if a.cloud:
+        import cloud
+        propose, dev = cloud.propose, "gpu"
+    else:
+        try:                                     # the app shows this: no GPU means minutes per image, not seconds
+            import torch
+            dev = "gpu" if torch.cuda.is_available() or torch.backends.mps.is_available() else "cpu"
+        except Exception:
+            dev = "cpu"
+    print(f"[device] {dev}{' (cloud)' if a.cloud else ''}", flush=True)
     start = lambda i, n, rel: print(f"[start {i}/{n}] {rel.as_posix()}", flush=True)
-    for i, n, line in batch(a.image_dir, a.out_dir, a.diameter, a.redo, on_start=start):
+    for i, n, line in batch(a.image_dir, a.out_dir, a.diameter, a.redo, on_start=start, propose=propose):
         print(f"[{i}/{n}] {line}", flush=True)
 
 

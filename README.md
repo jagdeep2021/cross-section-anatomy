@@ -49,6 +49,16 @@ Both come measured (`anatomy/`), like a student's real data: open app, drag one 
 `anatomy/` and open it again; it measures the 10 images and the title bar shows the time per image. Restore with
 `git checkout examples`.
 
+## Measure in the cloud (Modal)
+
+`cloud.py` runs the same `pipeline.propose()` on a rented GPU (Modal, L4, 4 CPU; model baked into the image).
+`run_batch.py <experiment>/raw --cloud`; saving, QC and file paths stay local, so outputs match a local run.
+Measured 2026-10-31: 18-30 s per fluorescence/DAPI image and ~65 s per 12 MP brightfield JPG on the server, plus
+~65 s once after a few idle minutes (machine start). Results travel compressed (~0.2 MB). ~$0.004-0.015 per image.
+Setup (account owner): `.venv/bin/pip install modal`, `.venv/bin/modal token new`, `.venv/bin/modal deploy cloud.py`
+(again after any change to pipeline.py; if old machines still answer with the old code, `modal app stop
+cross-section-anatomy` first). Stopping a local run does not stop calls already on the server.
+
 ## Compare two sets of results
 
 `python compare.py <reference.xlsx> <other.xlsx>`: two `anatomy_summary_*.xlsx` of the same images (auto pass vs a
