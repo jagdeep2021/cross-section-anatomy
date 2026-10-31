@@ -112,7 +112,7 @@ def _propose_on_gpu(path, diameter=None):
 # once the Modal secret csa-mail exists (Gmail for "X asks for access" emails, see server._notify), add to the line
 # above: secrets=[modal.Secret.from_name("csa-mail")]   (deploy fails while it names a secret that doesn't exist)
 @modal.concurrent(max_inputs=50)
-@modal.asgi_app(label="jadnaksha")   # the site address: https://jagdeep2021--jadnaksha.modal.run
+@modal.asgi_app(label="rooh")   # the site address: https://jagdeep2021--rooh.modal.run
 def web():
     import sys
     sys.path.insert(0, "/root/web")

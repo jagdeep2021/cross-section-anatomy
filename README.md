@@ -1,4 +1,4 @@
-# JadNaksha (ਜੜ੍ਹ ਨਕਸ਼ਾ, "root map"): root cross-section anatomy — propose, correct, summarise
+# Rooh (ਰੂਹ): root cross-section anatomy — propose, correct, summarise
 
 Root cross-sections with bright walls (fluorescence / autofluorescence) → per-cell,
 per-layer, per-image and per-plant tables. The computer proposes, a person corrects with
@@ -81,7 +81,7 @@ The same pipeline behind a browser page, for laptops without a GPU and users out
 ```
 Done: invite-only accounts (only the token hash is stored), projects, folder upload (folders become groups), queued
 GPU measuring with progress, image + outline layers with pan/zoom, per-image numbers, scale, Make results, download zip.
-Live: https://jagdeep2021--jadnaksha.modal.run (deployed from `cloud.py` with
+Live: https://jagdeep2021--rooh.modal.run (deployed from `cloud.py` with
 `modal deploy cloud.py`; a CPU machine serves the page, measuring goes to the GPU function, projects live on the
 Modal volume `csa-web-data`, saved after every change).
 Access: share the site address; a new person types name + email and asks, an admin approves them in the People

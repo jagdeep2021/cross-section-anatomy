@@ -45,7 +45,7 @@ import summarise as SUM   # noqa: E402
 
 DATA = Path(os.environ.get("CSA_DATA", Path(__file__).resolve().parent.parent / "web_data")).resolve()
 STATIC = Path(__file__).resolve().parent / "static"
-app = FastAPI(title="JadNaksha")
+app = FastAPI(title="Rooh")
 COMMIT = [lambda: None]                 # persists the data after a change (set on Modal: the volume's commit)
 RELOAD = [lambda: None]                 # sees changes made elsewhere, e.g. an invite (set on Modal: volume reload)
 
@@ -286,8 +286,8 @@ def _notify(name: str, email: str, site: str):
     from email.message import EmailMessage
     m = EmailMessage()
     m["From"], m["To"] = user, os.environ.get("MAIL_TO", user)
-    m["Subject"] = f"JadNaksha: {' '.join(name.split())} asks for access"
-    m.set_content(f"{name} ({email}) asked to use JadNaksha.\n\n"
+    m["Subject"] = f"Rooh: {' '.join(name.split())} asks for access"
+    m.set_content(f"{name} ({email}) asked to use Rooh.\n\n"
                   f"Approve or remove them under People: {site}\n\n"
                   "Approve only people you know: the name and email are typed by the asker, not checked.")
     try:
