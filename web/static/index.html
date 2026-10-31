@@ -62,6 +62,8 @@
   .keys { font-size:12px; color:var(--muted); line-height:1.5; }
   .keys b { color:var(--ink); font-weight:600; }
   label.file { display:inline-block; }
+  #figList a { display:block; margin:4px 0; color:var(--accent); }
+  #imgFig { width:100%; margin-top:10px; border:1px solid var(--line); border-radius:6px; background:#fff; }
   #peopleList li { cursor:default; white-space:normal; }
   #peopleList li span { flex:1; overflow:hidden; text-overflow:ellipsis; }
   .gate { grid-column:1 / -1; max-width:420px; margin:48px auto; padding:0 16px; }
@@ -98,7 +100,7 @@
     <progress id="prog" value="0" max="1" hidden></progress>
     <div class="msg" id="jobMsg"></div>
 
-    <h2>3 · Scale (µm per pixel)</h2>
+    <h2>3 · Scale (<span style="text-transform:none">µm</span> per pixel)</h2>
     <div class="row"><input type="number" id="scale" step="0.0001" min="0" placeholder="e.g. 0.7194"></div>
     <div class="row"><button id="scaleImg">This image</button><button id="scaleGrp">All in group</button><button id="scaleAll">All</button></div>
     <div class="msg" id="scaleMsg"></div>
@@ -106,6 +108,7 @@
     <h2>4 · Results</h2>
     <div class="row"><button class="primary" id="results">Make results</button><button id="download">Download</button></div>
     <div class="msg" id="resMsg"></div>
+    <div id="figList"></div>
 
     <h2>Images <span class="muted" id="count"></span></h2>
     <ul class="list" id="imgList"></ul>
@@ -142,15 +145,18 @@
     <button type="button" data-t="Root">Root <span class="muted">6</span></button>
   </div>
   <div class="keys" id="keys">
-    <b>Click</b>: add here (cell / vessel fills to its walls; stele: that cell joins it)<br>
-    <b>Ctrl/⌘-click</b>: remove what is under the cursor<br>
-    <b>Shift-drag</b> around an area: draw it · <b>Ctrl/⌘-Shift-drag</b>: clear it<br>
-    Root: Shift-drag only · File path, quarters: desktop app for now
+    <b>Click</b>: add a cell / vessel (fills to its walls)<br>
+    <b>Ctrl/⌘-click</b>: remove the cell / vessel under the cursor<br>
+    <b>Shift-drag</b>: draw it · <b>Ctrl/⌘-Shift-drag</b>: clear the area<br>
+    Stele, Root: Shift-drag the outline (replaces the old one)<br>
+    File path, quarters: desktop app for now
   </div>
   <div class="msg" id="editMsg"></div>
   <h2>This image</h2>
   <div id="imgName" class="muted">–</div>
   <dl id="traits"></dl>
+  <a id="imgFigLink" target="_blank" hidden><img id="imgFig" alt="Cortex pattern of this image (click to enlarge)"></a>
+  <div class="msg" id="imgFigMsg"></div>
 </section>
 
 <script>
@@ -192,6 +198,10 @@ async function refresh(first) {
     `<li data-k="${k}" title="${im.image}"><span class="dot ${im.status.replace(" ", "-")}"></span>${im.image}</li>`).join("");
   job(p.job);
   $("resMsg").textContent = p.results.length ? "Latest: " + p.results.join(", ") : "";
+  S.figures = p.figures || [];
+  $("figList").innerHTML = S.figures.filter(f => !f.includes("/")).map(f =>       // group figures (per-image ones show beside the image)
+    `<a target="_blank" href="/api/projects/${enc(S.project)}/figure?path=${enc(f)}&t=${Date.now()}">📈 ${f.replace(/\.png$/, "")}</a>`).join("");
+  if (S.i >= 0) imgFigure();
   const k = keep ? S.images.findIndex(im => im.image === keep) : -1;
   if (k >= 0) mark(k);
   else if (first || S.i < 0) { const m = S.images.findIndex(im => im.status !== "not measured"); if (m >= 0) show(m); }
@@ -247,7 +257,8 @@ $("scaleAll").onclick = () => setScale("all");
 $("results").onclick = async () => {
   $("results").disabled = true; $("resMsg").textContent = "Making the tables and figures… (about 1 min per 50 images)";
   try { const r = await api(`/api/projects/${enc(S.project)}/results`, { method: "POST" });
-        $("resMsg").textContent = "Done: " + r.results.join(", ") + ". Click Download."; }
+        $("resMsg").textContent = "Done: " + r.results.join(", ") + ". Click Download.";
+        await refresh(); }
   catch (e) { showErr(e); $("resMsg").textContent = ""; }
   $("results").disabled = false;
 };
@@ -284,6 +295,17 @@ async function show(k) {
       um ? ["stele area (mm²)", (t.stele_area_px * um * um / 1e6).toFixed(3)] : ["stele area (px)", t.stele_area_px],
       um ? ["cortex width (µm)", (t.cortex_width_px * um).toFixed(0)] : ["cortex width (px)", t.cortex_width_px.toFixed(0)]];
     $("traits").innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("");
+  }
+  imgFigure();
+}
+function imgFigure() {                            // this image's cortex pattern figure, from the last Make results
+  const im = S.images[S.i], f = im && "cortex_pattern/" + im.image.replace(/\.[^.]+$/, "").replaceAll("/", "__") + ".png";
+  const has = f && (S.figures || []).includes(f);
+  $("imgFigLink").hidden = !has;
+  $("imgFigMsg").textContent = im && im.status !== "not measured" && !has ? "Its cortex pattern graph appears here after Make results." : "";
+  if (has) {
+    const src = `/api/projects/${enc(S.project)}/figure?path=${enc(f)}&t=${Date.now()}`;
+    $("imgFig").src = src; $("imgFigLink").href = src;
   }
 }
 function fit() {

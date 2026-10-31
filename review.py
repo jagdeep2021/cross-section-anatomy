@@ -14,11 +14,10 @@ Pick what you are editing (keys 1-6; its name follows the cursor):
 
 The same four gestures work on every target:
   click              add here      cell / vessel: fills the lumen out to its walls
-                                   stele: the cell under the cursor becomes stele
                                    file path: the cell joins its quarter's path
   Cmd-click          remove what is under the cursor        (Ctrl-click on Windows/Linux)
   Shift-drag         draw an outline -> add it               (cell: new cell; vessel: merges with
-                                   vessels it touches; stele: area becomes stele; path: cells inside join)
+                                   vessels it touches; stele / root: this is the new outline; path: cells inside join)
   Cmd-Shift-drag     draw an outline -> remove everything inside it
   drag               pan   ·   scroll  zoom
   Alt-click          (file path) move this quarter's spoke through the click
@@ -746,8 +745,6 @@ class Reviewer:
         if t in ("Cell", "Metaxylem", "Stele", "Root"):    # same rules as the web page
             note = P.click_edit(self.gray, cells, region, mx, t, y, x, remove)
             if note:
-                if t == "Stele":
-                    self._refresh()
                 self.info.value += "\n" + note
                 return
         elif t == "File path" and lbl:

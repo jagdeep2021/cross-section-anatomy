@@ -356,7 +356,18 @@ def project(name: str, u: dict = Depends(user)):
     for im in imgs:
         im["um_per_px"] = scale.get(im["image"])
     results = sorted(p.name for p in (d / "results").glob("*.xlsx")) if (d / "results").exists() else []
-    return {"name": d.name, "images": imgs, "job": JOBS.get(str(d)), "results": results}
+    figs = d / "results" / "figures"
+    figures = sorted(p.relative_to(figs).as_posix() for p in figs.rglob("*.png")) if figs.exists() else []
+    return {"name": d.name, "images": imgs, "job": JOBS.get(str(d)), "results": results, "figures": figures}
+
+
+@app.get("/api/projects/{name}/figure")
+def figure(name: str, path: str, u: dict = Depends(user)):
+    """One figure from Make results (results/figures/...): group figures, and cortex_pattern/<image>.png per image."""
+    f = _project(u, name) / "results" / "figures" / _safe_rel(path)
+    if f.suffix != ".png" or not f.is_file():
+        raise HTTPException(404, "No such figure: click Make results first.")
+    return FileResponse(f, headers={"Cache-Control": "no-store"})
 
 
 @app.post("/api/projects/{name}/measure")

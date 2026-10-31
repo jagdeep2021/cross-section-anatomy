@@ -513,10 +513,15 @@ def outline_mask(pts, shape) -> np.ndarray:
 
 def edit_region(region: np.ndarray, m: np.ndarray, target: str, remove: bool = False) -> None:
     """Apply a drawn outline m to region (in place). The one rule set for the desktop editor and the web page.
-    Stele: the area becomes stele, staying inside the root (remove: back to plain root).
-    Root:  this outline is the root, the stele inside it kept (remove: the area is cut out of the root)."""
+    Stele: this outline is the stele, inside the root (the old stele goes) (remove: the area leaves the stele).
+    Root:  this outline is the root, the stele inside it kept (remove: the area is cut out of the root).
+    Both are outlines, not painted areas: drawing one replaces it."""
     if target == "Stele":
-        region[m & (region >= 1)] = 1 if remove else 2
+        if remove:
+            region[m & (region == 2)] = 1
+        else:
+            region[region == 2] = 1
+            region[m & (region >= 1)] = 2
     elif target == "Root":
         if remove:
             region[m] = 0
@@ -544,7 +549,7 @@ def take(arr: np.ndarray, m: np.ndarray, merge: bool) -> int:
 def click_edit(gray, cells, region, mx, target: str, y: int, x: int, remove: bool = False) -> str:
     """A click at (y, x) on Cell / Metaxylem / Stele, in place. The desktop editor and the web page share it.
     Cell: fill the lumen out to its walls (remove: the cell under the click goes). Metaxylem: same for a vessel.
-    Stele: the cell under the click becomes stele (remove: the whole stele goes; redraw it). Returns a note."""
+    Stele / Root: outlines only, so a click just says how to draw one. Returns a note."""
     lbl = int(cells[y, x])
     if target == "Cell":
         if remove and lbl:
@@ -556,13 +561,8 @@ def click_edit(gray, cells, region, mx, target: str, y: int, x: int, remove: boo
             mx[mx == mx[y, x]] = 0
         elif not remove and not mx[y, x]:
             add_mx(gray, mx, cells, y, x)
-    elif target == "Stele":
-        if remove:
-            region[region == 2] = 1
-            return "Stele removed. Shift-drag around the stele to draw it again."
-        region[cells == lbl if lbl else lumen_at(gray, y, x, 8 * typical_cell_area(cells))] = 2
-    elif target == "Root":
-        return "Root: Shift-drag around the root to set its outline."
+    elif target in ("Stele", "Root"):
+        return f"{target}: Shift-drag around the {target.lower()} to draw its outline (it replaces the old one)."
     else:
         raise ValueError(f"click_edit: no rule for {target}")
     return ""
