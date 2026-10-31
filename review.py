@@ -725,30 +725,21 @@ class Reviewer:
             self.click_edit(*start, remove)
 
     # ---------------------------------------------------------- edits (same rules for every target)
-    def _quadrant(self, mask):
-        cy, cx = np.argwhere(mask).mean(0)
-        return int(P.quadrant_of(cy, cx, self._centre(), self.angle))
-
-    def _path_add(self, labels):
-        for l in labels:
-            if l and l not in self.path_cells:
-                self.path_q = np.r_[self.path_q, self._quadrant(self.cells.data == l)].astype(np.int16)
-                self.path_cells = np.r_[self.path_cells, l].astype(np.int32)
-
-    def _path_remove(self, labels):
-        keep = ~np.isin(self.path_cells, list(labels))
-        self.path_q, self.path_cells = self.path_q[keep], self.path_cells[keep]
+    def _path(self, pts, remove=False, move=False, m=None):
+        """File path edits: the shared rules (pipeline.path_edit, same as the web page)."""
+        self.spokes, self.path_q, self.path_cells = P.path_edit(
+            self.cells.data, self.region.data, self.props, self.spokes, self.path_q, self.path_cells,
+            self._centre(), self.angle, pts, remove, move, m)
 
     def click_edit(self, y, x, remove):
         cells, mx, region, t = self.cells.data, self.mx.data, self.region.data, self.target
-        lbl = int(cells[y, x])
         if t in ("Cell", "Metaxylem", "Stele", "Root"):    # same rules as the web page
             note = P.click_edit(self.gray, cells, region, mx, t, y, x, remove)
             if note:
                 self.info.value += "\n" + note
                 return
-        elif t == "File path" and lbl:
-            self._path_remove([lbl]) if remove or lbl in self.path_cells else self._path_add([lbl])
+        elif t == "File path":
+            self._path((y, x), remove)
         elif t == "Quarters":                       # Cmd/Ctrl-click = drop this quarter (damaged), click = back in
             q = int(P.quadrant_of(y, x, self._centre(), self.angle))
             self.dropped = self.dropped | {q} if remove else self.dropped - {q}
@@ -764,28 +755,14 @@ class Reviewer:
         if m.sum() < 10:
             return
         cells, mx, region, t = self.cells.data, self.mx.data, self.region.data, self.target
-        inside = [int(l) for l in np.unique(cells[m]) if l and (cells[m] == l).sum() >= 0.5 * (cells == l).sum()]
         if t in ("Cell", "Metaxylem", "Stele", "Root"):
             P.outline_edit(cells, region, mx, t, m, remove)   # same rules as the web page
         elif t == "File path":
-            if remove:
-                self._path_remove(inside)
-            else:
-                empty = m & (cells == 0)            # an outline over a gap draws the missing cell
-                if empty.sum() > 0.3 * m.sum():
-                    inside.append(P.take(cells, m, merge=False))
-                self._path_add(inside)
+            self._path(None, remove, m=m)
         self._refresh()
 
     def move_spoke(self, y, x):
-        centre = self._centre()
-        q = int(P.quadrant_of(y, x, centre, self.angle))
-        t = float(np.degrees(np.arctan2(-(y - centre[0]), x - centre[1])))
-        self.spokes[q - 1] = t
-        keep = self.path_q != q
-        new = P.path_along(self.cells.data, self.region.data, self.props, t, centre=centre)
-        self.path_q = np.r_[self.path_q[keep], np.full(len(new), q)].astype(np.int16)
-        self.path_cells = np.r_[self.path_cells[keep], new].astype(np.int32)
+        self._path((y, x), move=True)
         self.recompute()
 
     def _refresh(self):

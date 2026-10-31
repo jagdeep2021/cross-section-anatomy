@@ -88,10 +88,11 @@ Access: share the site address; a new person types name + email and asks, an adm
 panel (that browser then works). Or send a personal login link: `python cloud.py invite <email> [--admin]`.
 Anyone can type any email, so approve only people you know.
 Tested 2026-10-31: login, project, upload, measure, Make results, download.
-Editing in the browser: Cell (1), Metaxylem (2) by click / Ctrl-⌘-click / Shift-drag; Stele (3) and Root (6) are
-outlines: Shift-drag draws the new one (replaces the old). Quarters (5): lines, spokes and Q labels drawn; Ctrl-⌘-click drops a
-quarter, click brings it back. Graphs from Make results show under Results and beside each image.
-Same rules as the desktop (`pipeline.click_edit` / `outline_edit`, shared). Next: file path; per-user quotas;
+Editing in the browser (right panel): pick Cell / Vessel / Stele / Path / Quarter / Root (keys 1-6); drag draws, click adds,
+hold Ctrl/⌘ to remove; Space-drag or right-drag moves the view, scroll zooms, F fits. Below: this image's cortex
+pattern (live) and its traits as small bars against the project median (orange = under 2/3 or over 1.5x).
+Make results = the project's Excel files + group graphs; per-image graphs only if ticked (`summarise.py --image-figures`).
+Same rules as the desktop (`pipeline.click_edit` / `outline_edit` / `path_edit`, shared). Next: per-user quotas;
 a container for deployment (MU server or a GPU service, whichever IT approves).
 
 ## Editable state

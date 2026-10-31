@@ -619,6 +619,52 @@ def outline_edit(cells, region, mx, target: str, m: np.ndarray, remove: bool = F
         raise ValueError(f"outline_edit: no rule for {target}")
 
 
+def path_edit(cells, region, props, spokes, path_q, path_cells, centre, angle, target_pts, remove=False,
+              move=False, m=None):
+    """File path edits, shared by the desktop editor and the web page. Returns (spokes, path_q, path_cells).
+    click (target_pts = (y, x)): the cell joins its quarter's path, or leaves it if it is on it (remove: leaves).
+    move: the click's quarter gets a new spoke through it, and its path is re-picked along it (path_along).
+    m (a drawn outline): cells mostly inside join (remove: leave); an outline over a gap draws the missing cell
+    first (cells is changed in place then)."""
+    spokes, path_q, path_cells = (np.array(spokes, float).copy(), np.asarray(path_q, np.int16).copy(),
+                                  np.asarray(path_cells, np.int32).copy())
+
+    def add(labels):
+        nonlocal path_q, path_cells
+        for l in labels:
+            if l and l not in path_cells:
+                cy, cx = np.argwhere(cells == l).mean(0)
+                path_q = np.r_[path_q, int(quadrant_of(cy, cx, centre, angle))].astype(np.int16)
+                path_cells = np.r_[path_cells, l].astype(np.int32)
+
+    def drop(labels):
+        nonlocal path_q, path_cells
+        keep = ~np.isin(path_cells, list(labels))
+        path_q, path_cells = path_q[keep], path_cells[keep]
+
+    if m is not None:
+        inside = [int(l) for l in np.unique(cells[m]) if l and (cells[m] == l).sum() >= 0.5 * (cells == l).sum()]
+        if remove:
+            drop(inside)
+        else:
+            if (m & (cells == 0)).sum() > 0.3 * m.sum():      # an outline over a gap draws the missing cell
+                inside.append(take(cells, m, merge=False))
+            add(inside)
+        return spokes, path_q, path_cells
+    y, x = target_pts
+    if move:
+        q = int(quadrant_of(y, x, centre, angle))
+        t = float(np.degrees(np.arctan2(-(y - centre[0]), x - centre[1])))
+        spokes[q - 1] = t
+        keep = path_q != q
+        new = path_along(cells, region, props, t, centre=centre)
+        return spokes, np.r_[path_q[keep], np.full(len(new), q)].astype(np.int16), np.r_[path_cells[keep], new].astype(np.int32)
+    lbl = int(cells[y, x])
+    if lbl:
+        drop([lbl]) if remove or lbl in path_cells else add([lbl])
+    return spokes, path_q, path_cells
+
+
 def save_edit(npz_path, **changes) -> None:
     """Save changed arrays into an image's npz, keeping everything else in it, and mark it reviewed."""
     z = np.load(npz_path, allow_pickle=False)

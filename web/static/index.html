@@ -7,77 +7,95 @@
 <link rel="icon" href="/icon.png">
 <style>
   :root { --bg:#f6f5f2; --panel:#ffffff; --ink:#22231f; --muted:#6c6d66; --line:#dddcd5; --accent:#2f6b4f;
-          --accent-ink:#fff; --warn:#a4471f; --chip:#eceae3; }
+          --accent-ink:#fff; --warn:#b4531f; --chip:#eceae3; --card:#faf9f6; }
   @media (prefers-color-scheme: dark) {
     :root { --bg:#171816; --panel:#20211e; --ink:#e9e8e2; --muted:#9d9e96; --line:#34352f; --accent:#7fbf9b;
-            --accent-ink:#10140f; --warn:#e48a5f; --chip:#2b2c28; }
+            --accent-ink:#10140f; --warn:#e48a5f; --chip:#2b2c28; --card:#262723; }
   }
   * { box-sizing:border-box; }
   html, body { height:100%; margin:0; }
   body { background:var(--bg); color:var(--ink); font:14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
-         display:grid; grid-template-columns:300px 1fr 260px; grid-template-rows:auto 1fr; }
+         display:grid; grid-template-columns:280px 1fr 290px; grid-template-rows:auto 1fr; }
   header { grid-column:1 / -1; display:flex; align-items:center; gap:12px; padding:10px 16px;
            border-bottom:1px solid var(--line); background:var(--panel); }
   header h1 { font-size:16px; margin:0; font-weight:600; }
-  header .who { margin-left:auto; color:var(--muted); }
-  aside, .side { background:var(--panel); border-right:1px solid var(--line); overflow:auto; padding:14px; }
-  .side { border-right:0; border-left:1px solid var(--line); }
-  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:18px 0 8px; }
-  h2:first-child { margin-top:0; }
+  header .who { margin-left:auto; color:var(--muted); font-size:13px; }
+  aside, .side { background:var(--panel); overflow:auto; padding:14px; }
+  aside { border-right:1px solid var(--line); }
+  .side { border-left:1px solid var(--line); }
+  [hidden] { display:none !important; }   /* a class's display rule must not unhide it (it covered the image) */
+  h2 { font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin:0 0 8px; font-weight:600; }
   button, select, input { font:inherit; color:inherit; }
   button { background:var(--chip); border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; }
+  button:hover { border-color:var(--muted); }
   button.primary { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
   button:disabled { opacity:.5; cursor:default; }
   input[type=text], input[type=number], select { background:var(--bg); border:1px solid var(--line); border-radius:6px;
-          padding:5px 8px; width:100%; }
-  .row { display:flex; gap:6px; align-items:center; margin:6px 0; }
-  .row > * { flex:1; }
-  .row > button { flex:0 0 auto; }
+          padding:5px 8px; width:100%; min-width:0; }
+  .row { display:flex; gap:6px; align-items:center; }
+  .row + .row { margin-top:6px; }
+  .grow { flex:1; min-width:0; }
+  .muted { color:var(--muted); }
+  .small { font-size:12px; }
+  .msg { color:var(--muted); font-size:12px; margin-top:6px; white-space:pre-wrap; }
+  .msg:empty { display:none; }
+  .msg.err { color:var(--warn); }
+  progress { width:100%; height:8px; margin-top:6px; }
+
+  /* left: the four steps as small cards */
+  .step { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px; margin-top:10px; }
+  .step h3 { display:flex; align-items:center; gap:8px; font-size:13px; margin:0 0 8px; font-weight:600; }
+  .step h3 i { font-style:normal; width:18px; height:18px; border-radius:50%; background:var(--accent);
+               color:var(--accent-ink); font-size:11px; display:grid; place-items:center; flex:0 0 18px; }
+  .step .row > button { flex:1; }
+  label.file { flex:1; display:flex; }
+  label.file button { flex:1; }
+  label.file input { display:none; }
+  label.check { display:flex; gap:6px; align-items:center; font-size:12px; color:var(--muted); margin-top:6px; }
+  #figList a { display:block; margin-top:6px; color:var(--accent); font-size:13px; }
   .list { list-style:none; margin:0; padding:0; }
-  .list li { padding:5px 8px; border-radius:6px; cursor:pointer; display:flex; gap:6px; align-items:center;
-             overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .list li { padding:4px 8px; border-radius:6px; cursor:pointer; display:flex; gap:6px; align-items:center;
+             overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:13px; }
   .list li:hover { background:var(--chip); }
   .list li.on { background:var(--accent); color:var(--accent-ink); }
   .dot { width:8px; height:8px; border-radius:50%; flex:0 0 8px; background:var(--line); }
   .dot.auto { background:#d9a400; } .dot.reviewed { background:#2f9e5c; }
-  .muted { color:var(--muted); }
-  .msg { color:var(--muted); font-size:13px; margin:6px 0; min-height:1em; white-space:pre-wrap; }
-  .msg.err { color:var(--warn); }
-  progress { width:100%; height:10px; }
-  main { position:relative; overflow:hidden; background:#0d0d0c; }
-  [hidden] { display:none !important; }   /* a class's display rule must not unhide it (it covered the image) */
-  main { user-select:none; -webkit-user-select:none; }
-  main canvas { touch-action:none;  position:absolute; inset:0; width:100%; height:100%; cursor:grab; }
-  main .hint { position:absolute; left:12px; bottom:10px; color:#ccc; font-size:12px; pointer-events:none;
-               background:rgba(0,0,0,.7); padding:2px 8px; border-radius:4px; }   /* readable over the image */
-  main .empty { position:absolute; inset:0; display:grid; place-items:center; color:#999; padding:24px; text-align:center; }
-  dl { display:grid; grid-template-columns:1fr auto; gap:3px 10px; margin:0; font-variant-numeric:tabular-nums; }
-  dt { color:var(--muted); } dd { margin:0; text-align:right; }
-  .legend span { display:inline-flex; align-items:center; gap:5px; margin:2px 10px 2px 0; font-size:12px; }
-  .legend i { width:12px; height:3px; display:inline-block; }
-  .seg { display:flex; gap:0; }
-  .seg button { flex:1; border-radius:0; }
-  .seg button:first-child { border-radius:6px 0 0 6px; }
-  .seg button:last-child { border-radius:0 6px 6px 0; margin-left:-1px; }
-  .seg button.on { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
-  .seg button.on .muted { color:inherit; opacity:.7; }
-  .keys { font-size:12px; color:var(--muted); line-height:1.5; }
-  .keys b { color:var(--ink); font-weight:600; }
-  label.file { display:inline-block; }
-  #figList a { display:block; margin:4px 0; color:var(--accent); }
-  .bar-t { display:flex; justify-content:space-between; font-size:12px; margin:8px 0 2px; }
-  .bar-t span:last-child { color:var(--muted); font-variant-numeric:tabular-nums; }
-  #bars svg { display:block; width:100%; height:40px; }
-  #bars rect { fill:var(--line); cursor:pointer; }
-  #bars rect:hover { fill:var(--muted); }
-  #bars rect.on { fill:var(--accent); }
-  #bars line { stroke:var(--ink); stroke-width:1; stroke-dasharray:3 2; opacity:.6; }
-  #imgFig { width:100%; margin-top:10px; border:1px solid var(--line); border-radius:6px; background:#fff; }
+  details summary { cursor:pointer; color:var(--muted); font-size:12px; margin-top:14px; }
   #peopleList li { cursor:default; white-space:normal; }
   #peopleList li span { flex:1; overflow:hidden; text-overflow:ellipsis; }
+
+  /* centre: the image */
+  main { position:relative; overflow:hidden; background:#0d0d0c; user-select:none; -webkit-user-select:none; }
+  main canvas { touch-action:none; position:absolute; inset:0; width:100%; height:100%; cursor:crosshair; }
+  main canvas.pan { cursor:grab; }
+  main .hint { position:absolute; left:10px; bottom:10px; right:10px; color:#ccc; font-size:12px; pointer-events:none; }
+  main .hint span { background:rgba(0,0,0,.7); padding:3px 8px; border-radius:4px; }
+  main .empty { position:absolute; inset:0; display:grid; place-items:center; color:#999; padding:24px; text-align:center; }
+
+  /* right: edit, then this image's graphs */
+  .tools { display:grid; grid-template-columns:repeat(3, 1fr); gap:5px; }
+  .tools button { display:flex; align-items:center; gap:6px; padding:6px 7px; font-size:13px; }
+  .tools button i { width:10px; height:10px; border-radius:50%; flex:0 0 10px; }
+  .tools button kbd { margin-left:auto; font:11px system-ui; color:var(--muted); }
+  .tools button.on { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+  .tools button.on kbd { color:inherit; opacity:.7; }
+  .tip { font-size:12px; color:var(--ink); margin-top:8px; min-height:2.9em; }
+  .keys { font-size:11.5px; color:var(--muted); margin-top:4px; line-height:1.6; }
+  .keys b { color:var(--ink); font-weight:600; }
+  .view { margin-top:8px; font-size:12px; color:var(--muted); }
+  .view input[type=range] { flex:1; }
+  .side section { border-top:1px solid var(--line); padding-top:12px; margin-top:12px; }
+  #imgName { font-size:12px; color:var(--muted); margin:-4px 0 8px; overflow-wrap:anywhere; }
+  #imgFig { width:100%; display:block; border:1px solid var(--line); border-radius:6px; background:#fff; }
+  .tr { display:grid; grid-template-columns:1fr 64px 62px; gap:8px; align-items:center; font-size:11.5px; height:18px; }
+  .tr .lab { color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tr .val { text-align:right; font-variant-numeric:tabular-nums; }
+  .tr .trk { position:relative; height:7px; background:var(--chip); border-radius:3px; }
+  .tr .trk b { position:absolute; left:0; top:0; bottom:0; background:var(--accent); border-radius:3px; }
+  .tr .trk b.off { background:var(--warn); }
+  .tr .trk u { position:absolute; left:50%; top:-3px; bottom:-3px; border-left:1.5px solid var(--ink); opacity:.55; }
   .gate { grid-column:1 / -1; max-width:420px; margin:48px auto; padding:0 16px; }
   .gate input { margin:4px 0 10px; }
-  label.file input { display:none; }
   @media (max-width: 900px) {
     body { grid-template-columns:1fr; grid-template-rows:auto auto 60vh auto; }
     aside, .side { border:0; border-bottom:1px solid var(--line); }
@@ -93,89 +111,97 @@
 
 <aside>
   <h2>Project</h2>
-  <div class="row"><select id="projSel"></select></div>
-  <div class="row"><input type="text" id="projName" placeholder="New project name"><button id="projNew">Create</button></div>
+  <div class="row">
+    <select id="projSel" class="grow"></select>
+    <button id="projAdd" title="New project">+ New</button>
+  </div>
+  <div class="row" id="projNewRow" hidden>
+    <input type="text" id="projName" class="grow" placeholder="Name of the new project">
+    <button class="primary" id="projNew">Create</button>
+  </div>
 
   <div id="projPanel" hidden>
-    <h2>1 · Images</h2>
-    <div class="row">
-      <label class="file"><button type="button" onclick="this.nextElementSibling.click()">Add folder…</button><input type="file" id="upDir" webkitdirectory multiple></label>
-      <label class="file"><button type="button" onclick="this.nextElementSibling.click()">Add files…</button><input type="file" id="upFiles" multiple accept=".tif,.tiff,.png,.jpg,.jpeg"></label>
+    <div class="step">
+      <h3><i>1</i>Add images</h3>
+      <div class="row">
+        <label class="file"><button type="button" onclick="this.nextElementSibling.click()">Folder…</button><input type="file" id="upDir" webkitdirectory multiple></label>
+        <label class="file"><button type="button" onclick="this.nextElementSibling.click()">Files…</button><input type="file" id="upFiles" multiple accept=".tif,.tiff,.png,.jpg,.jpeg"></label>
+      </div>
+      <div class="msg">Folders become groups: Maize / sibs / P1 / x.tif = species, genotype, plant.</div>
     </div>
-    <div class="msg">Folders become groups: Maize/sibs/P1/x.tif → species, genotype, plant.</div>
 
-    <h2>2 · Measure</h2>
-    <div class="row"><button class="primary" id="measure">Outline new images</button></div>
-    <progress id="prog" value="0" max="1" hidden></progress>
-    <div class="msg" id="jobMsg"></div>
+    <div class="step">
+      <h3><i>2</i>Outline</h3>
+      <div class="row"><button class="primary" id="measure">Outline new images</button></div>
+      <progress id="prog" value="0" max="1" hidden></progress>
+      <div class="msg" id="jobMsg"></div>
+    </div>
 
-    <h2>3 · Scale (<span style="text-transform:none">µm</span> per pixel)</h2>
-    <div class="row"><input type="number" id="scale" step="0.0001" min="0" placeholder="e.g. 0.7194"></div>
-    <div class="row"><button id="scaleImg">This image</button><button id="scaleGrp">All in group</button><button id="scaleAll">All</button></div>
-    <div class="msg" id="scaleMsg"></div>
+    <div class="step">
+      <h3><i>3</i>Scale <span class="muted small" style="font-weight:400">µm per pixel</span></h3>
+      <div class="row">
+        <input type="number" id="scale" step="0.0001" min="0" placeholder="0.7194" style="width:72px;flex:0 0 72px">
+        <select id="scaleWho" class="grow" title="Which images get this scale"><option value="img">image</option><option value="grp">group</option><option value="all">all</option></select>
+        <button id="scaleSet">Set</button>
+      </div>
+      <div class="msg" id="scaleMsg"></div>
+    </div>
 
-    <h2>4 · Results</h2>
-    <div class="row"><button class="primary" id="results">Make results</button><button id="download">Download</button></div>
-    <div class="msg" id="resMsg"></div>
-    <div id="figList"></div>
+    <div class="step">
+      <h3><i>4</i>Results</h3>
+      <div class="row"><button class="primary" id="results">Make results</button><button id="download">Download</button></div>
+      <label class="check"><input type="checkbox" id="perImage"> also a cortex graph per image (slower)</label>
+      <div class="msg" id="resMsg"></div>
+      <div id="figList"></div>
+    </div>
 
-    <h2>Images <span class="muted" id="count"></span></h2>
+    <h2 style="margin-top:16px">Images <span id="count"></span></h2>
     <ul class="list" id="imgList"></ul>
   </div>
-  <div id="peoplePanel" hidden>
-    <h2>People</h2>
+  <details id="peoplePanel" hidden>
+    <summary>People</summary>
     <ul class="list" id="peopleList"></ul>
     <div class="msg">Approve only people you know: anyone can type any email.</div>
-  </div>
+  </details>
   <div class="msg err" id="err"></div>
 </aside>
 
 <main id="view">
   <canvas id="cv"></canvas>
   <div class="empty" id="empty">Pick a project, add images, then Outline new images.</div>
-  <div class="hint">drag = move · scroll = zoom · click = add · ⌘/Ctrl-click = remove · Shift-drag = draw · O = outlines on/off · ← → = previous / next</div>
+  <div class="hint"><span>drag = draw · click = add · ⌘/Ctrl = remove · Space-drag = move · scroll = zoom · F = fit · O = outlines · ← → images</span></div>
 </main>
 
-<section class="side">
-  <h2>Show</h2>
-  <div class="row"><span>Outlines</span><input type="range" id="ovOp" min="0" max="1" step="0.05" value="1"></div>
-  <div class="legend">
-    <span><i style="background:rgb(80,255,120)"></i>cells</span>
-    <span><i style="background:rgb(255,220,0)"></i>root</span>
-    <span><i style="background:rgb(0,220,255)"></i>stele</span>
-    <span><i style="background:rgb(255,60,60)"></i>metaxylem</span>
-    <span><i style="background:rgb(255,150,0)"></i>file path</span>
-    <span><i style="background:#fff;outline:1px solid var(--muted)"></i>quarters</span>
-  </div>
+<section class="side" style="border-top:0">
   <h2>Edit</h2>
-  <div class="seg" id="target">
-    <button type="button" data-t="Cell">Cell <span class="muted">1</span></button>
-    <button type="button" data-t="Metaxylem">Mx <span class="muted">2</span></button>
-    <button type="button" data-t="Stele" class="on">Stele <span class="muted">3</span></button>
-    <button type="button" data-t="Root">Root <span class="muted">6</span></button>
-    <button type="button" data-t="Quarters">Qtr <span class="muted">5</span></button>
+  <div class="tools" id="target">
+    <button type="button" data-t="Cell"><i style="background:rgb(80,255,120)"></i>Cell<kbd>1</kbd></button>
+    <button type="button" data-t="Metaxylem"><i style="background:rgb(255,60,60)"></i>Vessel<kbd>2</kbd></button>
+    <button type="button" data-t="Stele" class="on"><i style="background:rgb(0,220,255)"></i>Stele<kbd>3</kbd></button>
+    <button type="button" data-t="File path"><i style="background:rgb(255,150,0)"></i>Path<kbd>4</kbd></button>
+    <button type="button" data-t="Quarters"><i style="background:#fff;outline:1px solid var(--muted)"></i>Quarter<kbd>5</kbd></button>
+    <button type="button" data-t="Root"><i style="background:rgb(255,220,0)"></i>Root<kbd>6</kbd></button>
   </div>
-  <div class="keys" id="keys">
-    <b>Click</b>: add a cell / vessel (fills to its walls)<br>
-    <b>Ctrl/⌘-click</b>: remove the cell / vessel under the cursor<br>
-    <b>Shift-drag</b>: draw it · <b>Ctrl/⌘-Shift-drag</b>: clear the area<br>
-    Stele, Root: Shift-drag the outline (replaces the old one)<br>
-    Qtr: ⌘/Ctrl-click a quarter to drop it (damaged), click to bring it back<br>
-    File path: desktop app for now
-  </div>
+  <div class="tip" id="tip"></div>
+  <div class="keys"><b>Drag</b> draws · <b>click</b> adds · hold <b>⌘/Ctrl</b> to remove instead</div>
+  <div class="row view"><span>Outlines</span><input type="range" id="ovOp" min="0" max="1" step="0.05" value="1"><button id="fitBtn" title="Fit the image (F)">Fit</button></div>
   <div class="msg" id="editMsg"></div>
-  <h2>This image</h2>
-  <div id="imgName" class="muted">–</div>
-  <h2>Traits <span class="muted" style="text-transform:none;letter-spacing:0">(bar = an image, this one green; click to open)</span></h2>
-  <div id="bars"></div>
-  <h2>Cortex pattern <span class="muted" style="text-transform:none;letter-spacing:0">(this image, live)</span></h2>
-  <a id="imgFigLink" target="_blank" hidden><img id="imgFig" alt="Cortex pattern of this image (click to enlarge)"></a>
+
+  <section>
+    <h2>Cortex pattern</h2>
+    <div id="imgName">–</div>
+    <a id="imgFigLink" target="_blank" hidden title="Open full size"><img id="imgFig" alt="Cortex pattern of this image"></a>
+  </section>
+  <section>
+    <h2>Traits <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">· tick = project median</span></h2>
+    <div id="traitBars"></div>
+  </section>
 </section>
 
 <script>
 const $ = id => document.getElementById(id);
 const S = { project: null, images: [], i: -1, gray: null, ov: null, poll: null,
-            view: { s: 1, x: 0, y: 0 }, showOv: true, target: "Stele", pen: null, saving: false };
+            view: { s: 1, x: 0, y: 0 }, showOv: true, target: "Stele", pen: null, pan: null, space: false, saving: false };
 
 async function api(path, opt = {}) {
   const r = await fetch(path, opt);
@@ -193,7 +219,7 @@ const enc = encodeURIComponent;
 // ---------------------------------------------------------------- projects
 async function loadProjects(pick) {
   const ps = await api("/api/projects");
-  $("projSel").innerHTML = '<option value="">– choose –</option>' + ps.map(p => `<option>${p}</option>`).join("");
+  $("projSel").innerHTML = '<option value="">– choose a project –</option>' + ps.map(p => `<option>${p}</option>`).join("");
   if (pick) { $("projSel").value = pick; await openProject(pick); }
 }
 async function openProject(name) {
@@ -206,23 +232,22 @@ async function refresh(first) {
   const p = await api(`/api/projects/${enc(S.project)}`);
   const keep = S.images[S.i]?.image;
   S.images = p.images;
-  $("count").textContent = `(${p.images.length})`;
+  const done = p.images.filter(im => im.status === "reviewed").length;
+  $("count").textContent = p.images.length ? `· ${p.images.length}, ${done} checked` : "";
   $("imgList").innerHTML = p.images.map((im, k) =>
     `<li data-k="${k}" title="${im.image}"><span class="dot ${im.status.replace(" ", "-")}"></span>${im.image}</li>`).join("");
   job(p.job);
   $("resMsg").textContent = p.results.length ? "Latest: " + p.results.join(", ") : "";
-  S.figures = p.figures || [];
-  $("figList").innerHTML = S.figures.filter(f => !f.includes("/")).map(f =>       // group figures (per-image ones show beside the image)
+  $("figList").innerHTML = (p.figures || []).filter(f => !f.includes("/")).map(f =>   // group graphs
     `<a target="_blank" href="/api/projects/${enc(S.project)}/figure?path=${enc(f)}&t=${Date.now()}">📈 ${figName(f)}</a>`).join("");
-  if (S.i >= 0) imgFigure();
-  loadBars();
+  loadTraits();
   const k = keep ? S.images.findIndex(im => im.image === keep) : -1;
   if (k >= 0) mark(k);
   else if (first || S.i < 0) { const m = S.images.findIndex(im => im.status !== "not measured"); if (m >= 0) show(m); }
 }
 function job(j) {
   const run = j && (j.state === "queued" || j.state === "running");
-  $("prog").hidden = !j || j.state === "done";
+  $("prog").hidden = !run;
   if (j) { $("prog").max = j.n || 1; $("prog").value = j.i || 0; }
   $("jobMsg").textContent = !j ? "" : j.state === "queued" ? `Waiting for the GPU (${j.ahead} project(s) ahead)…`
     : j.state === "running" ? `${j.i} of ${j.n}: ${j.line || "loading the model…"}` : j.line;
@@ -231,12 +256,18 @@ function job(j) {
   clearTimeout(S.poll);
   if (run) S.poll = setTimeout(() => refresh().catch(showErr), 2000);
 }
+function figName(f) {                           // cortex_pattern_Maize_2026-10-31.png -> "Cortex pattern · Maize"
+  const m = f.match(/^cortex_pattern_(.+)_(\d{4}-\d{2}-\d{2})\.png$/);
+  return m ? `Cortex pattern · ${m[1]}` : f.replace(/\.png$/, "");
+}
 
 $("projSel").onchange = e => openProject(e.target.value).catch(showErr);
+$("projAdd").onclick = () => { $("projNewRow").hidden = !$("projNewRow").hidden; $("projName").focus(); };
 $("projNew").onclick = async () => {
   try { const r = await api("/api/projects", form({ name: $("projName").value })); $("projName").value = "";
-        await loadProjects(r.name); } catch (e) { showErr(e); }
+        $("projNewRow").hidden = true; await loadProjects(r.name); } catch (e) { showErr(e); }
 };
+$("projName").onkeydown = e => { if (e.key === "Enter") $("projNew").click(); };
 
 // ---------------------------------------------------------------- upload, measure, scale, results
 async function upload(files) {
@@ -256,23 +287,21 @@ $("upDir").onchange = e => upload(e.target.files).catch(showErr);
 $("upFiles").onchange = e => upload(e.target.files).catch(showErr);
 $("measure").onclick = async () => { try { job(await api(`/api/projects/${enc(S.project)}/measure`, { method: "POST" })); } catch (e) { showErr(e); } };
 
-async function setScale(which) {
-  const im = S.images[S.i], v = parseFloat($("scale").value);
+$("scaleSet").onclick = async () => {
+  const im = S.images[S.i], v = parseFloat($("scale").value), which = $("scaleWho").value;
   if (!(v > 0)) return showErr("Type the scale first (µm per pixel).");
   const body = { um_per_px: v, group: "", rel: "" };
-  if (which === "img") { if (!im) return; body.rel = im.image; }
-  if (which === "grp") { if (!im) return; body.group = im.image.split("/")[0]; }
+  if (which !== "all" && !im) return showErr("Open an image first.");
+  if (which === "img") body.rel = im.image;
+  if (which === "grp") body.group = im.image.split("/")[0];
   try { const r = await api(`/api/projects/${enc(S.project)}/scale`, form(body));
         $("scaleMsg").textContent = `${v} µm/px set for ${r.set} image(s).`; await refresh(); } catch (e) { showErr(e); }
-}
-$("scaleImg").onclick = () => setScale("img");
-$("scaleGrp").onclick = () => setScale("grp");
-$("scaleAll").onclick = () => setScale("all");
+};
 $("results").onclick = async () => {
-  $("results").disabled = true; $("resMsg").textContent = "Making the tables and figures… (about 1 min per 50 images)";
-  try { const r = await api(`/api/projects/${enc(S.project)}/results`, { method: "POST" });
-        $("resMsg").textContent = "Done: " + r.results.join(", ") + ". Click Download.";
-        await refresh(); }
+  $("results").disabled = true; $("resMsg").textContent = "Making the Excel files and graphs…";
+  try { const r = await api(`/api/projects/${enc(S.project)}/results`, form({ image_figures: $("perImage").checked }));
+        await refresh();
+        $("resMsg").textContent = "Done: " + r.results.join(", ") + ". Click Download."; }
   catch (e) { showErr(e); $("resMsg").textContent = ""; }
   $("results").disabled = false;
 };
@@ -290,7 +319,7 @@ async function show(k) {
   if (k < 0 || k >= S.images.length) return;
   mark(k);
   const im = S.images[k], q = `?rel=${enc(im.image)}&t=${Date.now()}`, base = `/api/projects/${enc(S.project)}`;
-  $("imgName").textContent = im.image;
+  $("imgName").textContent = `${im.image} · ${im.status}`;
   $("scale").value = im.um_per_px ?? "";
   $("empty").hidden = true;
   const fresh = !S.gray;
@@ -298,67 +327,12 @@ async function show(k) {
   S.ov = im.status === "not measured" ? null : await load(`${base}/image/overlay${q}`).catch(() => null);
   if (fresh || S.gray.width !== S.lastW) fit();
   S.lastW = S.gray.width;
-  draw();
   S.quarters = null;
-  if (im.status !== "not measured") {                // the numbers live in the bars below; this gives the quarters
-    const t = await api(`${base}/traits${q}`);
-    S.quarters = t.quarters; draw();
-  }
-  $("imgName").textContent = `${im.image} · ${im.status}`;
+  draw();
+  if (im.status !== "not measured") S.quarters = (await api(`${base}/traits${q}`)).quarters;
+  draw();
   imgFigure();
-  drawBars();
-}
-// ---------------------------------------------------------------- per-image bars: spot outliers at a glance
-const BARS = [   // label, value from an image's traits, kind (sets the unit when every image has a scale)
-  ["Cortical cell files", t => median(t.files_per_quarter.filter(n => n != null)), "n"],
-  ["Cortical cells", t => t.n_cortex_cells, "n"], ["Cortical layers", t => t.n_cortical_layers, "n"],
-  ["Cortex width", t => t.cortex_width_px, "len"], ["Root area", t => t.root_area_px, "area"],
-  ["Stele area", t => t.stele_area_px, "area"], ["Metaxylem vessels", t => t.mx_n, "n"],
-  ["Mean metaxylem area", t => t.mx_mean_area_px, "area"], ["Air space area", t => t.air_space_total_area_px, "area"]];
-function median(v) { if (!v.length) return null; const a = [...v].sort((p, q) => p - q), m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; }
-async function loadBars() {
-  try { S.all = await api(`/api/projects/${enc(S.project)}/all_traits`); } catch (_) { S.all = []; }
-  drawBars();
-}
-function drawBars() {
-  const el = $("bars"), all = S.all || [];
-  if (all.length < 2) { el.innerHTML = all.length ? '<div class="msg">Measure more images to compare.</div>' : ""; return; }
-  const scale = Object.fromEntries(S.images.map(im => [im.image, im.um_per_px]));
-  const um = all.every(t => scale[t.image]), cur = S.images[S.i]?.image;
-  const unit = { n: "", len: um ? "µm" : "px", area: um ? "mm²" : "px²" };
-  const conv = (v, k, img) => v == null ? null : !um || k === "n" ? v : k === "len" ? v * scale[img] : v * scale[img] ** 2 / 1e6;
-  const fmt = v => v == null ? "–" : Math.abs(v) >= 100 ? Math.round(v).toLocaleString() : +v.toPrecision(3);
-  el.innerHTML = "";
-  for (const [label, get, k] of BARS) {
-    const vals = all.map(t => conv(get(t), k, t.image)), ok = vals.filter(v => v != null);
-    if (!ok.length) continue;
-    const max = Math.max(...ok) || 1, med = median(ok), n = vals.length, W = 100, gap = n > 40 ? 0 : 0.6;
-    const ci = all.findIndex(t => t.image === cur);
-    const head = document.createElement("div");
-    head.className = "bar-t";
-    head.innerHTML = `<span>${label}${unit[k] ? " (" + unit[k] + ")" : ""}</span><span>${ci >= 0 ? fmt(vals[ci]) : ""} · median ${fmt(med)}</span>`;
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", `0 0 ${W} 40`); svg.setAttribute("preserveAspectRatio", "none");
-    vals.forEach((v, i) => {
-      if (v == null) return;
-      const r = document.createElementNS(svg.namespaceURI, "rect"), w = W / n, h = Math.max(1, 38 * v / max);
-      r.setAttribute("x", i * w + gap / 2); r.setAttribute("width", Math.max(w - gap, 0.3));
-      r.setAttribute("y", 40 - h); r.setAttribute("height", h);
-      if (i === ci) r.classList.add("on");
-      r.innerHTML = `<title>${all[i].image}: ${fmt(v)}</title>`;
-      r.onclick = () => show(S.images.findIndex(im => im.image === all[i].image)).catch(showErr);
-      svg.append(r);
-    });
-    const ln = document.createElementNS(svg.namespaceURI, "line"), y = 40 - 38 * med / max;
-    ln.setAttribute("x1", 0); ln.setAttribute("x2", W); ln.setAttribute("y1", y); ln.setAttribute("y2", y);
-    ln.setAttribute("vector-effect", "non-scaling-stroke");
-    svg.append(ln);
-    el.append(head, svg);
-  }
-}
-function figName(f) {                           // cortex_pattern_Maize_2026-10-31.png -> "Cortex pattern · Maize (2026-10-31)"
-  const m = f.match(/^cortex_pattern_(.+)_(\d{4}-\d{2}-\d{2})\.png$/);
-  return m ? `Cortex pattern · ${m[1]}  (${m[2]})` : f.replace(/\.png$/, "");
+  drawTraits();
 }
 function imgFigure() {                            // this image's cortex pattern, live from its current outlines
   const im = S.images[S.i], on = im && im.status !== "not measured";
@@ -368,6 +342,38 @@ function imgFigure() {                            // this image's cortex pattern
     $("imgFig").src = src; $("imgFigLink").href = src;
   }
 }
+
+// ---------------------------------------------------------------- this image's traits: one small bar each
+const TRAITS = [   // label, value from the image's traits, kind (unit once the image has a scale)
+  ["Cell files", t => median(t.files_per_quarter.filter(n => n != null)), "n"],
+  ["Cortical cells", t => t.n_cortex_cells, "n"], ["Cortical layers", t => t.n_cortical_layers, "n"],
+  ["Cortex width", t => t.cortex_width_px, "len"], ["Root area", t => t.root_area_px, "area"],
+  ["Stele area", t => t.stele_area_px, "area"], ["Vessels", t => t.mx_n, "n"],
+  ["Vessel area", t => t.mx_mean_area_px, "area"], ["Air space area", t => t.air_space_total_area_px, "area"]];
+function median(v) { if (!v.length) return null; const a = [...v].sort((p, q) => p - q), m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; }
+async function loadTraits() {
+  try { S.all = await api(`/api/projects/${enc(S.project)}/all_traits`); } catch (_) { S.all = []; }
+  drawTraits();
+}
+function drawTraits() {                           // bar = this image; tick = the project median (bar half-way);
+  const el = $("traitBars"), all = S.all || [], im = S.images[S.i];   // orange = under 2/3 or over 1.5x the median
+  const t = im && all.find(a => a.image === im.image);
+  if (!t) { el.innerHTML = '<div class="msg">Shown once the image is outlined.</div>'; return; }
+  const sc = im.um_per_px, cmp = all.length > 1;
+  const unit = { n: "", len: sc ? " µm" : " px", area: sc ? " mm²" : " px²" };
+  const conv = (v, k, s) => v == null ? null : !s || k === "n" ? v : k === "len" ? v * s : v * s * s / 1e6;
+  const fmt = v => v == null ? "–" : Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : +v.toPrecision(3);
+  el.innerHTML = TRAITS.map(([label, get, k]) => {
+    const v = conv(get(t), k, sc);
+    const med = cmp ? median(all.map(a => conv(get(a), k, S.images.find(x => x.image === a.image)?.um_per_px)).filter(x => x != null)) : null;
+    const r = v != null && med ? v / med : null;
+    const bar = r == null ? "" : `<b class="${r < 2 / 3 || r > 1.5 ? "off" : ""}" style="width:${Math.min(100, 50 * r)}%"></b><u></u>`;
+    const tip = `${label}: ${fmt(v)}${unit[k]}` + (med != null ? ` · median ${fmt(med)}${unit[k]}` : "");
+    return `<div class="tr" title="${tip}"><span class="lab">${label}<span class="small"> ${unit[k].trim()}</span></span><span class="trk">${bar}</span><span class="val">${fmt(v)}</span></div>`;
+  }).join("");
+}
+
+// ---------------------------------------------------------------- drawing the view
 function fit() {
   const r = cv.getBoundingClientRect(), s = Math.min(r.width / S.gray.width, r.height / S.gray.height) * 0.96;
   S.view = { s, x: (r.width - S.gray.width * s) / 2, y: (r.height - S.gray.height * s) / 2 };
@@ -383,7 +389,7 @@ function draw() {
   ctx.drawImage(S.gray, x, y, S.gray.width * s, S.gray.height * s);
   if (S.ov && S.showOv) { ctx.globalAlpha = +$("ovOp").value; ctx.drawImage(S.ov, x, y, S.ov.width * s, S.ov.height * s); ctx.globalAlpha = 1; }
   if (S.quarters && S.showOv) drawQuarters();
-  if (S.pen && S.pen.pts.length > 1) {          // the outline being drawn (image px -> screen)
+  if (S.pen && S.pen.moved && S.pen.pts.length > 1) {   // the outline being drawn (image px -> screen)
     ctx.beginPath();
     S.pen.pts.forEach(([py, px], k) => k ? ctx.lineTo(x + px * s, y + py * s) : ctx.moveTo(x + px * s, y + py * s));
     if (!S.pen.live) ctx.closePath();
@@ -414,7 +420,17 @@ function drawQuarters() {                         // as in the desktop app: whit
   }
   ctx.restore();
 }
-const COLOR = { Cell: "rgb(80,255,120)", Metaxylem: "rgb(255,60,60)", Stele: "rgb(0,220,255)", Root: "rgb(255,220,0)" };
+
+// ---------------------------------------------------------------- editing: drag draws, click adds, ⌘/Ctrl removes
+const COLOR = { Cell: "rgb(80,255,120)", Metaxylem: "rgb(255,60,60)", Stele: "rgb(0,220,255)",
+                "File path": "rgb(255,150,0)", Root: "rgb(255,220,0)", Quarters: "#fff" };
+const TIP = {
+  Cell: "Click inside a cell to fill it, or draw around one. ⌘/Ctrl-click removes a cell, ⌘/Ctrl-drag clears an area.",
+  Metaxylem: "Click inside a vessel to fill it, or draw around one. ⌘/Ctrl-click removes a vessel.",
+  Stele: "Draw the stele outline: it replaces the old one. ⌘/Ctrl-drag cuts an area out of the stele.",
+  Root: "Draw the root outline: it replaces the old one. ⌘/Ctrl-drag cuts an area out of the root.",
+  "File path": "Click a cell to add it to (or take it off) its quarter's path; draw around cells to add them. Alt-click moves that quarter's spoke.",
+  Quarters: "⌘/Ctrl-click a damaged quarter to leave it out of the results; click it to bring it back."};
 function toImg(e) {                              // screen -> image pixel (y, x)
   const r = cv.getBoundingClientRect(), { s, x, y } = S.view;
   return [(e.clientY - r.top - y) / s, (e.clientX - r.left - x) / s];
@@ -422,81 +438,82 @@ function toImg(e) {                              // screen -> image pixel (y, x)
 function setTarget(t) {
   S.target = t;
   document.querySelectorAll("#target button").forEach(b => b.classList.toggle("on", b.dataset.t === t));
+  $("tip").textContent = TIP[t];
 }
 $("target").onclick = e => { const b = e.target.closest("button"); if (b) setTarget(b.dataset.t); };
-async function applyEdit(pen) {
+async function applyEdit(pts, remove, move) {
   const im = S.images[S.i];
   S.saving = true; $("editMsg").textContent = "Saving…";
   try {
     const r = await api(`/api/projects/${enc(S.project)}/edit`, form({ rel: im.image, target: S.target,
-      points: JSON.stringify(pen.pts.map(([py, px]) => [Math.round(py * 10) / 10, Math.round(px * 10) / 10])),
-      remove: pen.remove }));
+      points: JSON.stringify(pts.map(([py, px]) => [Math.round(py * 10) / 10, Math.round(px * 10) / 10])),
+      remove, move: !!move }));
     im.status = "reviewed";
     document.querySelector(`#imgList li[data-k="${S.i}"] .dot`)?.setAttribute("class", "dot reviewed");
-    await show(S.i);                             // new overlay + numbers
-    loadBars();
-    $("editMsg").textContent = r.note || `${S.target} ${pen.remove ? "removed" : "saved"}.`;
+    S.pen = null;
+    await show(S.i);                             // new outlines, graph and traits
+    await refresh();                             // the image list and its "checked" count
+    $("editMsg").textContent = r.note || "Saved.";
   } catch (e) { $("editMsg").textContent = ""; showErr(e); }
   finally { S.saving = false; S.pen = null; draw(); }
 }
+const editable = () => { const im = S.images[S.i]; return im && im.status !== "not measured" && !S.saving; };
 cv.addEventListener("wheel", e => {
   e.preventDefault();
   const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top, f = Math.exp(-e.deltaY * 0.0015);
   S.view.x = mx - (mx - S.view.x) * f; S.view.y = my - (my - S.view.y) * f; S.view.s *= f; draw();
 }, { passive: false });
-let drag = null;
 cv.addEventListener("pointerdown", e => {
-  e.preventDefault();                            // no text selection on Shift-click
+  e.preventDefault();                            // no text selection while drawing
   cv.setPointerCapture(e.pointerId);
-  const im = S.images[S.i];
-  if (e.shiftKey && S.target !== "Quarters" && im && im.status !== "not measured" && !S.saving) {
-    showErr(""); S.pen = { pts: [toImg(e)], remove: e.ctrlKey || e.metaKey, live: true, last: [e.clientX, e.clientY] };
-    return;
-  }
-  drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, at: toImg(e), remove: e.ctrlKey || e.metaKey };
-  cv.style.cursor = "grabbing";
+  const panning = S.space || e.button === 1 || e.button === 2 || !editable();   // Space, middle or right button: move
+  if (panning) { S.pan = { x: e.clientX, y: e.clientY }; cv.classList.add("pan"); return; }
+  showErr("");
+  S.pen = { pts: [toImg(e)], remove: e.ctrlKey || e.metaKey, move: e.altKey && S.target === "File path",
+            live: true, moved: false, x0: e.clientX, y0: e.clientY, last: [e.clientX, e.clientY] };
 });
 cv.addEventListener("pointermove", e => {
-  if (S.pen && S.pen.live) {
-    const [lx, ly] = S.pen.last;
-    if (Math.hypot(e.clientX - lx, e.clientY - ly) >= 3) { S.pen.pts.push(toImg(e)); S.pen.last = [e.clientX, e.clientY]; draw(); }
-    return;
-  }
-  if (!drag) return; S.view.x += e.clientX - drag.x; S.view.y += e.clientY - drag.y; drag = { x: e.clientX, y: e.clientY }; draw();
+  if (S.pan) { S.view.x += e.clientX - S.pan.x; S.view.y += e.clientY - S.pan.y; S.pan = { x: e.clientX, y: e.clientY }; draw(); return; }
+  if (!S.pen || !S.pen.live) return;
+  if (!S.pen.moved && Math.hypot(e.clientX - S.pen.x0, e.clientY - S.pen.y0) >= 4) S.pen.moved = S.target !== "Quarters";
+  const [lx, ly] = S.pen.last;
+  if (S.pen.moved && Math.hypot(e.clientX - lx, e.clientY - ly) >= 3) { S.pen.pts.push(toImg(e)); S.pen.last = [e.clientX, e.clientY]; draw(); }
 });
 cv.addEventListener("pointerup", () => {
-  if (S.pen && S.pen.live) {
-    S.pen.live = false; draw();
-    if (S.pen.pts.length >= 3) applyEdit(S.pen); else S.pen = null;
-    return;
-  }
-  const im = S.images[S.i];                       // a click without movement edits; a drag only moves the view
-  if (drag && Math.hypot(drag.x - drag.x0, drag.y - drag.y0) < 4 && im && im.status !== "not measured" && !S.saving) {
-    showErr(""); applyEdit({ pts: [drag.at], remove: drag.remove });
-  }
-  drag = null; cv.style.cursor = "grab";
+  if (S.pan) { S.pan = null; if (!S.space) cv.classList.remove("pan"); return; }
+  const p = S.pen;
+  if (!p || !p.live) return;
+  p.live = false; draw();
+  if (!p.moved) applyEdit([p.pts[0]], p.remove, p.move);         // a click
+  else if (p.pts.length >= 3) applyEdit(p.pts, p.remove, false);  // a drawn outline
+  else S.pen = null;
 });
 cv.addEventListener("contextmenu", e => e.preventDefault());   // Ctrl-click on a Mac must not open a menu
 addEventListener("resize", draw);
 $("ovOp").oninput = draw;
+$("fitBtn").onclick = () => { if (S.gray) { fit(); draw(); } };
 $("imgList").onclick = e => { const li = e.target.closest("li"); if (li) show(+li.dataset.k).catch(showErr); };
+const KEYS = { 1: "Cell", 2: "Metaxylem", 3: "Stele", 4: "File path", 5: "Quarters", 6: "Root" };
 addEventListener("keydown", e => {
-  if (e.target.tagName === "INPUT") return;
+  if (["INPUT", "SELECT"].includes(e.target.tagName)) return;
+  if (e.key === " ") { e.preventDefault(); S.space = true; cv.classList.add("pan"); }
   if (e.key === "ArrowRight") show(S.i + 1).catch(showErr);
   if (e.key === "ArrowLeft") show(S.i - 1).catch(showErr);
   if (e.key === "o" || e.key === "O") { S.showOv = !S.showOv; draw(); }
-  if (e.key === "1") setTarget("Cell");
-  if (e.key === "2") setTarget("Metaxylem");
-  if (e.key === "3") setTarget("Stele");
-  if (e.key === "6") setTarget("Root");
-  if (e.key === "5") setTarget("Quarters");
+  if ((e.key === "f" || e.key === "F") && S.gray) { fit(); draw(); }
+  if (KEYS[e.key]) setTarget(KEYS[e.key]);
 });
+addEventListener("keyup", e => { if (e.key === " ") { S.space = false; if (!S.pan) cv.classList.remove("pan"); } });
+setTarget(S.target);
 
 // ---------------------------------------------------------------- people (admins)
 async function loadPeople() {
   const ps = await api("/api/people");
   ps.sort((a, b) => a.approved - b.approved || a.email.localeCompare(b.email));
   $("peopleList").innerHTML = "";
+  const waiting = ps.filter(p => !p.approved).length;
+  $("peoplePanel").querySelector("summary").textContent = "People" + (waiting ? ` · ${waiting} waiting for approval` : "");
+  if (waiting) $("peoplePanel").open = true;
   for (const p of ps) {
     const li = document.createElement("li");
     const who = document.createElement("span");

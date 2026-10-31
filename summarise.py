@@ -1,6 +1,6 @@
 """Masks -> tables. Run any time; it reads whatever is saved (auto or reviewed).
 
-  python summarise.py <anatomy_dir>
+  python summarise.py <anatomy_dir> [--image-figures]     (also one cortex pattern figure per image)
 
 Uses <anatomy_dir>/samples.xlsx (one row per image; made by run_batch.py, or here if missing). Fill it in:
   plant      the replicate; images of the same plant are averaged
@@ -127,7 +127,9 @@ def describe(col):
     return ""
 
 
-def main(anatomy_dir: Path):
+def main(anatomy_dir: Path, image_figures: bool = False):
+    """The project's tables (xlsx) and group figures. image_figures: also one cortex pattern figure per image
+    (slow for big sets; the editors draw it live for the image on screen)."""
     settings = json.loads((anatomy_dir / "settings.json").read_text())
     files = sorted((anatomy_dir / "masks").glob("*.npz"))
     sfile = write_samples(anatomy_dir)
@@ -139,7 +141,8 @@ def main(anatomy_dir: Path):
 
     angle = float(settings.get("quadrant_angle_deg", 0))
     fig_dir = anatomy_dir.parent / "results" / "figures" / "cortex_pattern"
-    fig_dir.mkdir(parents=True, exist_ok=True)
+    if image_figures:
+        fig_dir.mkdir(parents=True, exist_ok=True)
     img_rows, cell_rows, file_rows, all_rows = [], [], [], []
     for f in files:
         z = np.load(f)
@@ -186,9 +189,10 @@ def main(anatomy_dir: Path):
                            stele_radius_um=ft.stele_radius_px * s, root_radius_um=ft.root_radius_px * s)
             file_rows.append(ft.assign(**meta, tech_rep=tech, status=status))
             um = not np.isnan(s)
-            PP.image_figure(ft, props.assign(area_um2=props.area_px * s * s), "area_um2" if um else "area_px",
-                            "Cell area (µm²)" if um else "Cell area (px)",
-                            f"{rel}  ·  {status}", fig_dir / (Path(rel).with_suffix("").as_posix().replace("/", "__") + ".png"))
+            if image_figures:
+                PP.image_figure(ft, props.assign(area_um2=props.area_px * s * s), "area_um2" if um else "area_px",
+                                "Cell area (µm²)" if um else "Cell area (px)",
+                                f"{rel}  ·  {status}", fig_dir / (Path(rel).with_suffix("").as_posix().replace("/", "__") + ".png"))
 
         mxt = pd.DataFrame(measure.regionprops_table(mx, properties=("label", "area", "centroid", "axis_major_length",
                                                                      "axis_minor_length"))) if mx.any() else pd.DataFrame()
@@ -333,4 +337,4 @@ def main(anatomy_dir: Path):
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         sys.exit(__doc__)
-    main(Path(sys.argv[1]).resolve())
+    main(Path(sys.argv[1]).resolve(), image_figures="--image-figures" in sys.argv)

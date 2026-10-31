@@ -467,7 +467,7 @@ def all_traits(name: str, u: dict = Depends(user)):
 
 @app.post("/api/projects/{name}/edit")
 def edit(name: str, rel: str = Form(...), target: str = Form(...), points: str = Form(...),
-         remove: bool = Form(False), u: dict = Depends(user)):
+         remove: bool = Form(False), move: bool = Form(False), u: dict = Depends(user)):
     """A click (one point) or a drawn outline (points [[y, x], ...] in image pixels) on Cell / Metaxylem / Stele /
     Root, applied with the desktop editor's own rules (pipeline.click_edit / outline_edit); the image becomes
     'reviewed'. Returns the image's new numbers, plus a note when the edit needs a follow-up."""
@@ -476,7 +476,7 @@ def edit(name: str, rel: str = Form(...), target: str = Form(...), points: str =
     npz = d / "anatomy" / "masks" / f"{RB.image_key(Path(rel))}.npz"
     if not npz.exists():
         raise HTTPException(404, "Not measured yet")
-    if target not in ("Cell", "Metaxylem", "Stele", "Root", "Quarters"):
+    if target not in ("Cell", "Metaxylem", "Stele", "Root", "Quarters", "File path"):
         raise HTTPException(400, f"Editing {target} in the browser is not available yet: use the desktop app.")
     pts = np.asarray(json.loads(points), float)
     if pts.ndim != 2 or pts.shape[1] != 2 or len(pts) in (0, 2):
@@ -491,6 +491,21 @@ def edit(name: str, rel: str = Form(...), target: str = Form(...), points: str =
         P.save_edit(npz, dropped_q=np.array(sorted(dropped), np.int16))
         return {**traits(name, rel, u), "note": f"Q{q} " + ("dropped from the results." if q in dropped else "in the results.")}
     cells, region, mx = cells.copy(), region.copy(), mx.copy()
+    if target == "File path":                # click / Ctrl-click a cell, Shift-drag cells, Alt-click = move the spoke
+        settings = json.loads((d / "anatomy" / "settings.json").read_text())
+        angle, centre, dropped = float(settings.get("quadrant_angle_deg", 0)), P.centre_of(region, P.load_centre(npz)), P.load_dropped(npz)
+        props = P.drop_quarters(P.derive(cells, region, mx, angle, centre)[0], dropped)
+        spokes, pq, pc = P.load_paths(npz) or P.auto_paths(cells, region, props, angle, centre)
+        if len(pts) == 1:
+            y, x = (int(round(v)) for v in pts[0])
+            if not (0 <= y < cells.shape[0] and 0 <= x < cells.shape[1]):
+                raise HTTPException(400, "Click on the image.")
+            spokes, pq, pc = P.path_edit(cells, region, props, spokes, pq, pc, centre, angle, (y, x), remove, move)
+        else:
+            spokes, pq, pc = P.path_edit(cells, region, props, spokes, pq, pc, centre, angle, None, remove,
+                                         m=P.outline_mask(pts, cells.shape))
+        P.save_edit(npz, cells=cells, spokes=spokes, path_q=pq, path_cells=pc)
+        return {**traits(name, rel, u), "note": ""}
     note = ""
     if len(pts) == 1:
         y, x = (int(round(v)) for v in pts[0])
@@ -528,11 +543,11 @@ def set_scale(name: str, um_per_px: float = Form(...), group: str = Form(""), re
 
 
 @app.post("/api/projects/{name}/results")
-def make_results(name: str, u: dict = Depends(user)):
+def make_results(name: str, image_figures: bool = Form(False), u: dict = Depends(user)):
     d = _project(u, name)
     if not any((d / "anatomy" / "masks").glob("*.npz")):
         raise HTTPException(400, "Measure the images first.")
-    SUM.main(d / "anatomy")
+    SUM.main(d / "anatomy", image_figures)
     return {"results": sorted(p.name for p in (d / "results").glob("*.xlsx"))}
 
 
