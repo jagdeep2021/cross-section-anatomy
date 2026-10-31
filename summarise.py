@@ -320,14 +320,6 @@ def main(anatomy_dir: Path):
                             "area_um2" if um else "area_px", "Cortical cell area (µm²)" if um else "Cortical cell area (px)",
                             out_dir / "figures" / f"cortex_pattern_{spv}_{today}.png",
                             f"  {drop} image(s) without a scale left out." if drop else "")
-    if len(per_plant) and groups:                  # whole-root traits, one bar per genotype (or last group level)
-        sp, gt = groups[0], groups[-1]
-        (out_dir / "figures").mkdir(exist_ok=True)
-        for spv, d in per_plant.groupby(sp):
-            um = d.filter(like="_um").notna().any().any()
-            drop = int(d.um_per_px.isna().sum()) if um and "um_per_px" in d else 0
-            PP.trait_bars(d[d.um_per_px.notna()] if drop else d, gt, spv, um, out_dir / "figures" / f"traits_{spv}_{today}.png",
-                          f"  {drop} plant(s) without a scale left out." if drop else "")
     no_scale = per_image.loc[per_image.um_per_px.isna(), "image_file"].tolist()
     if no_scale:
         print(f"\nWARNING: {len(no_scale)} image(s) have no scale (um_per_px empty); their sizes "

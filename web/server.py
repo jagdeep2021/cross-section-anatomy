@@ -407,6 +407,27 @@ def traits(name: str, rel: str, u: dict = Depends(user)):
     return {k: (None if isinstance(v, float) and np.isnan(v) else v) for k, v in tr.items()}
 
 
+@app.get("/api/projects/{name}/all_traits")
+def all_traits(name: str, u: dict = Depends(user)):
+    """Every measured image's numbers (for the per-image bars that show outliers). Cached per image until its
+    mask changes, so only edited images are recomputed."""
+    d = _project(u, name)
+    f = d / ".cache" / "traits.json"
+    cache = json.loads(f.read_text()) if f.exists() else {}
+    out = []
+    for im in _images(d):
+        if im["status"] == "not measured":
+            continue
+        npz = d / "anatomy" / "masks" / f"{RB.image_key(Path(im['image']))}.npz"
+        t = npz.stat().st_mtime
+        if cache.get(im["image"], {}).get("mtime") != t:
+            cache[im["image"]] = {"mtime": t, "traits": traits(name, im["image"], u)}
+        out.append({"image": im["image"], **cache[im["image"]]["traits"]})
+    f.parent.mkdir(exist_ok=True)
+    f.write_text(json.dumps(cache))
+    return out
+
+
 @app.post("/api/projects/{name}/edit")
 def edit(name: str, rel: str = Form(...), target: str = Form(...), points: str = Form(...),
          remove: bool = Form(False), u: dict = Depends(user)):

@@ -65,6 +65,13 @@
   .keys b { color:var(--ink); font-weight:600; }
   label.file { display:inline-block; }
   #figList a { display:block; margin:4px 0; color:var(--accent); }
+  .bar-t { display:flex; justify-content:space-between; font-size:12px; margin:8px 0 2px; }
+  .bar-t span:last-child { color:var(--muted); font-variant-numeric:tabular-nums; }
+  #bars svg { display:block; width:100%; height:40px; }
+  #bars rect { fill:var(--line); cursor:pointer; }
+  #bars rect:hover { fill:var(--muted); }
+  #bars rect.on { fill:var(--accent); }
+  #bars line { stroke:var(--ink); stroke-width:1; stroke-dasharray:3 2; opacity:.6; }
   #imgFig { width:100%; margin-top:10px; border:1px solid var(--line); border-radius:6px; background:#fff; }
   #peopleList li { cursor:default; white-space:normal; }
   #peopleList li span { flex:1; overflow:hidden; text-overflow:ellipsis; }
@@ -138,7 +145,7 @@
     <span><i style="background:rgb(0,220,255)"></i>stele</span>
     <span><i style="background:rgb(255,60,60)"></i>metaxylem</span>
     <span><i style="background:rgb(255,150,0)"></i>file path</span>
-    <span><i style="background:#fff"></i>quarters</span>
+    <span><i style="background:#fff;outline:1px solid var(--muted)"></i>quarters</span>
   </div>
   <h2>Edit</h2>
   <div class="seg" id="target">
@@ -160,6 +167,8 @@
   <h2>This image</h2>
   <div id="imgName" class="muted">–</div>
   <dl id="traits"></dl>
+  <h2>All images <span class="muted" style="text-transform:none;letter-spacing:0">(this one highlighted, click a bar to open)</span></h2>
+  <div id="bars"></div>
   <a id="imgFigLink" target="_blank" hidden><img id="imgFig" alt="Cortex pattern of this image (click to enlarge)"></a>
   <div class="msg" id="imgFigMsg"></div>
 </section>
@@ -207,6 +216,7 @@ async function refresh(first) {
   $("figList").innerHTML = S.figures.filter(f => !f.includes("/")).map(f =>       // group figures (per-image ones show beside the image)
     `<a target="_blank" href="/api/projects/${enc(S.project)}/figure?path=${enc(f)}&t=${Date.now()}">📈 ${figName(f)}</a>`).join("");
   if (S.i >= 0) imgFigure();
+  loadBars();
   const k = keep ? S.images.findIndex(im => im.image === keep) : -1;
   if (k >= 0) mark(k);
   else if (first || S.i < 0) { const m = S.images.findIndex(im => im.status !== "not measured"); if (m >= 0) show(m); }
@@ -303,10 +313,59 @@ async function show(k) {
     $("traits").innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("");
   }
   imgFigure();
+  drawBars();
 }
-function figName(f) {                           // traits_Maize_2026-10-31.png -> "Traits · Maize (2026-10-31)"
-  const m = f.match(/^(traits|cortex_pattern)_(.+)_(\d{4}-\d{2}-\d{2})\.png$/);
-  return m ? `${m[1] === "traits" ? "Traits (bar graphs)" : "Cortex pattern"} · ${m[2]}  (${m[3]})` : f.replace(/\.png$/, "");
+// ---------------------------------------------------------------- per-image bars: spot outliers at a glance
+const BARS = [   // label, value from an image's traits, kind (sets the unit when every image has a scale)
+  ["Cortical cell files", t => median(t.files_per_quarter.filter(n => n != null)), "n"],
+  ["Cortical cells", t => t.n_cortex_cells, "n"], ["Cortical layers", t => t.n_cortical_layers, "n"],
+  ["Cortex width", t => t.cortex_width_px, "len"], ["Root area", t => t.root_area_px, "area"],
+  ["Stele area", t => t.stele_area_px, "area"], ["Metaxylem vessels", t => t.mx_n, "n"],
+  ["Mean metaxylem area", t => t.mx_mean_area_px, "area"], ["Air space area", t => t.air_space_total_area_px, "area"]];
+function median(v) { if (!v.length) return null; const a = [...v].sort((p, q) => p - q), m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; }
+async function loadBars() {
+  try { S.all = await api(`/api/projects/${enc(S.project)}/all_traits`); } catch (_) { S.all = []; }
+  drawBars();
+}
+function drawBars() {
+  const el = $("bars"), all = S.all || [];
+  if (all.length < 2) { el.innerHTML = all.length ? '<div class="msg">Measure more images to compare.</div>' : ""; return; }
+  const scale = Object.fromEntries(S.images.map(im => [im.image, im.um_per_px]));
+  const um = all.every(t => scale[t.image]), cur = S.images[S.i]?.image;
+  const unit = { n: "", len: um ? "µm" : "px", area: um ? "mm²" : "px²" };
+  const conv = (v, k, img) => v == null ? null : !um || k === "n" ? v : k === "len" ? v * scale[img] : v * scale[img] ** 2 / 1e6;
+  const fmt = v => v == null ? "–" : Math.abs(v) >= 100 ? Math.round(v).toLocaleString() : +v.toPrecision(3);
+  el.innerHTML = "";
+  for (const [label, get, k] of BARS) {
+    const vals = all.map(t => conv(get(t), k, t.image)), ok = vals.filter(v => v != null);
+    if (!ok.length) continue;
+    const max = Math.max(...ok) || 1, med = median(ok), n = vals.length, W = 100, gap = n > 40 ? 0 : 0.6;
+    const ci = all.findIndex(t => t.image === cur);
+    const head = document.createElement("div");
+    head.className = "bar-t";
+    head.innerHTML = `<span>${label}${unit[k] ? " (" + unit[k] + ")" : ""}</span><span>${ci >= 0 ? fmt(vals[ci]) : ""} · median ${fmt(med)}</span>`;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", `0 0 ${W} 40`); svg.setAttribute("preserveAspectRatio", "none");
+    vals.forEach((v, i) => {
+      if (v == null) return;
+      const r = document.createElementNS(svg.namespaceURI, "rect"), w = W / n, h = Math.max(1, 38 * v / max);
+      r.setAttribute("x", i * w + gap / 2); r.setAttribute("width", Math.max(w - gap, 0.3));
+      r.setAttribute("y", 40 - h); r.setAttribute("height", h);
+      if (i === ci) r.classList.add("on");
+      r.innerHTML = `<title>${all[i].image}: ${fmt(v)}</title>`;
+      r.onclick = () => show(S.images.findIndex(im => im.image === all[i].image)).catch(showErr);
+      svg.append(r);
+    });
+    const ln = document.createElementNS(svg.namespaceURI, "line"), y = 40 - 38 * med / max;
+    ln.setAttribute("x1", 0); ln.setAttribute("x2", W); ln.setAttribute("y1", y); ln.setAttribute("y2", y);
+    ln.setAttribute("vector-effect", "non-scaling-stroke");
+    svg.append(ln);
+    el.append(head, svg);
+  }
+}
+function figName(f) {                           // cortex_pattern_Maize_2026-10-31.png -> "Cortex pattern · Maize (2026-10-31)"
+  const m = f.match(/^cortex_pattern_(.+)_(\d{4}-\d{2}-\d{2})\.png$/);
+  return m ? `Cortex pattern · ${m[1]}  (${m[2]})` : f.replace(/\.png$/, "");
 }
 function imgFigure() {                            // this image's cortex pattern figure, from the last Make results
   const im = S.images[S.i], f = im && "cortex_pattern/" + im.image.replace(/\.[^.]+$/, "").replaceAll("/", "__") + ".png";
@@ -384,6 +443,7 @@ async function applyEdit(pen) {
     im.status = "reviewed";
     document.querySelector(`#imgList li[data-k="${S.i}"] .dot`)?.setAttribute("class", "dot reviewed");
     await show(S.i);                             // new overlay + numbers
+    loadBars();
     $("editMsg").textContent = r.note || `${S.target} ${pen.remove ? "removed" : "saved"}.`;
   } catch (e) { $("editMsg").textContent = ""; showErr(e); }
   finally { S.saving = false; S.pen = null; draw(); }

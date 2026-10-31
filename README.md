@@ -11,7 +11,7 @@ cross_section_anatomy/
 ├── run_batch.py    folder of images -> anatomy/masks/*.npz + anatomy/qc/*.png (resumable)
 ├── review.py       napari app: fix cells / stele / metaxylem; edit the file path per quadrant
 ├── summarise.py    masks -> results/{cell_size_by_file, all_cells, anatomy_summary}_YYYY-MM-DD.xlsx
-│                   + results/figures/ (cortex pattern per species, per image; traits_<species> bar graphs)
+│                   + results/figures/ (cortex pattern per species, per image)
 ├── pattern_plots.py  splines, profile features, the figures (also the live plot in review.py)
 ├── Install (…), Open app (…)   double-click launchers (Mac .command, Windows .bat)
 └── requirements.txt
