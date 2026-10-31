@@ -397,6 +397,8 @@ def traits(name: str, rel: str, u: dict = Depends(user)):
     """The numbers for one image, from derive(): the same function the results use."""
     d = _project(u, name)
     npz = d / "anatomy" / "masks" / f"{RB.image_key(Path(_safe_rel(rel)))}.npz"
+    if not npz.exists():                         # not measured yet, or the project was just deleted
+        raise HTTPException(404, "Not measured yet")
     cells, region, mx, status = P.load_state(npz)
     settings = json.loads((d / "anatomy" / "settings.json").read_text())
     angle, centre, dropped = float(settings.get("quadrant_angle_deg", 0)), P.centre_of(region, P.load_centre(npz)), P.load_dropped(npz)
@@ -579,6 +581,36 @@ def download(name: str, u: dict = Depends(user)):
     buf.seek(0)
     return StreamingResponse(buf, media_type="application/zip",
                              headers={"Content-Disposition": f'attachment; filename="{d.name}_results.zip"'})
+
+
+@app.get("/api/projects/{name}/download_all")
+def download_all(name: str, u: dict = Depends(user)):
+    """The whole project as one zip in the desktop layout (raw/ images, anatomy/ masks + settings + samples,
+    results/), so it opens in the desktop app. Written to a temporary file: raw images can be large."""
+    import tempfile
+    from starlette.background import BackgroundTask
+    d = _project(u, name)
+    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
+        for p in sorted(d.rglob("*")):
+            rel = p.relative_to(d)
+            if p.is_file() and rel.parts[0] != ".cache" and "qc" not in rel.parts[:2]:
+                z.write(p, f"{d.name}/{rel.as_posix()}")
+    tmp.close()
+    return FileResponse(tmp.name, media_type="application/zip", filename=f"{d.name}_project.zip",
+                        background=BackgroundTask(os.unlink, tmp.name))
+
+
+@app.delete("/api/projects/{name}")
+def delete_project(name: str, u: dict = Depends(user)):
+    """Moves the project to trash/ (out of the user's list, not erased: an admin can still restore it)."""
+    d = _project(u, name)
+    if JOBS.get(str(d), {}).get("state") in ("queued", "running"):
+        raise HTTPException(400, "This project is being measured: wait until it finishes.")
+    dest = DATA / "trash" / _uid(u) / f"{d.name}_{time.strftime('%Y-%m-%d_%H%M%S')}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(d), dest)
+    return {"ok": True}
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

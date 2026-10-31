@@ -94,6 +94,8 @@ Editing in the browser (right panel): pick Cell / Vessel / Stele / Path / Quarte
 hold Ctrl/⌘ to remove; Space-drag or right-drag moves the view, scroll zooms, F fits. Below: this image's cortex
 pattern (live) and its traits as small bars against the project median (orange = under 2/3 or over 1.5x).
 Make results = the project's Excel files + group graphs; per-image graphs only if ticked (`summarise.py --image-figures`).
+🗑 deletes a project: its dialog first offers ⬇ the whole project (images, masks, settings, results) as one zip;
+the project is moved to `<data>/trash/<user>/<name>_<date-time>/`, not erased (an admin can move it back).
 Same rules as the desktop (`pipeline.click_edit` / `outline_edit` / `path_edit`, shared). Next: per-user quotas;
 a container for deployment (MU server or a GPU service, whichever IT approves).
 

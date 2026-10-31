@@ -45,6 +45,9 @@
   button, select, input { font:inherit; color:inherit; }
   button { background:var(--chip); border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; }
   button:hover { border-color:var(--muted); }
+  button.danger { background:var(--warn); color:#fff; border-color:var(--warn); }
+  dialog { border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--ink); padding:16px; }
+  dialog::backdrop { background:rgba(0,0,0,.35); }
   button.primary { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
   button:disabled { opacity:.5; cursor:default; }
   input[type=text], input[type=number], select { background:var(--bg); border:1px solid var(--line); border-radius:6px;
@@ -121,6 +124,7 @@
 <nav>
   <div class="grp">
     <select id="projSel"></select><button id="projAdd" title="New project">+</button>
+    <button id="projDel" title="Delete this project…" data-proj hidden>🗑</button>
     <span id="projNewRow" class="row" hidden><input type="text" id="projName" placeholder="new project name" style="width:150px">
       <button class="primary" id="projNew">Create</button></span>
   </div>
@@ -146,6 +150,17 @@
     <label class="check" title="Also one cortex pattern graph per image (slower)"><input type="checkbox" id="perImage">per image</label>
   </div>
 </nav>
+<dialog id="delDlg">
+  <h3 style="margin:0 0 8px">Delete <span id="delName"></span>?</h3>
+  <p class="small" style="margin:0 0 12px;max-width:380px">It leaves your project list. Keep a copy first: the whole
+    project (images, masks, settings, results) as one zip, which also opens in the desktop app.</p>
+  <div class="row">
+    <button id="delDown">⬇ Download whole project</button>
+    <span class="grow"></span>
+    <button id="delNo">Cancel</button>
+    <button id="delYes" class="danger">Delete</button>
+  </div>
+</dialog>
 <div class="status"><span id="jobMsg"></span><span id="scaleMsg"></span><span id="resMsg"></span><span id="figList"></span><span id="err" class="err"></span></div>
 
 <main id="view">
@@ -253,6 +268,20 @@ $("projNew").onclick = async () => {
         $("projNewRow").hidden = true; await loadProjects(r.name); } catch (e) { showErr(e); }
 };
 $("projName").onkeydown = e => { if (e.key === "Enter") $("projNew").click(); };
+$("projDel").onclick = () => { $("delName").textContent = S.project; $("delDlg").showModal(); };
+$("delNo").onclick = () => $("delDlg").close();
+$("delDown").onclick = () => { location.href = `/api/projects/${enc(S.project)}/download_all`; };
+$("delYes").onclick = async () => {
+  try {
+    await api(`/api/projects/${enc(S.project)}`, { method: "DELETE" });
+    clearTimeout(S.poll);
+    $("delDlg").close();
+    Object.assign(S, { project: null, images: [], i: -1, gray: null, ovC: null, ovM: null, quarters: null, all: [] });
+    $("empty").hidden = false; $("imgFigLink").hidden = true; $("traitBars").innerHTML = ""; $("imgName").textContent = "–";
+    draw();
+    await loadProjects(); await openProject("");
+  } catch (e) { $("delDlg").close(); showErr(e); }
+};
 
 // ---------------------------------------------------------------- upload, measure, scale, results
 async function upload(files) {
@@ -317,6 +346,7 @@ async function show(k) {
   if (k < 0 || k >= S.images.length) return;
   mark(k);
   const im = S.images[k], q = `?rel=${enc(im.image)}&t=${Date.now()}`, base = `/api/projects/${enc(S.project)}`;
+  const gone = () => base !== `/api/projects/${enc(S.project)}`;   // project switched or deleted meanwhile
   $("imgName").textContent = `${im.image} · ${im.status}`;
   $("scale").value = im.um_per_px ?? "";
   $("empty").hidden = true;
@@ -324,11 +354,13 @@ async function show(k) {
   S.gray = await load(`${base}/image/gray${q}`);
   const out = im.status === "not measured";
   [S.ovC, S.ovM] = await Promise.all(["cells", "masks"].map(k => out ? null : load(`${base}/image/${k}${q}`).catch(() => null)));
+  if (gone()) return;
   if (fresh || k !== S.shown) fit();               // a new image opens fitted; an edit keeps the zoom
   S.shown = k;
   S.quarters = null;
   draw();
-  if (im.status !== "not measured") S.quarters = (await api(`${base}/traits${q}`)).quarters;
+  if (im.status !== "not measured") S.quarters = (await api(`${base}/traits${q}`).catch(() => ({}))).quarters ?? null;
+  if (gone()) return;
   draw();
   imgFigure();
   drawTraits();
