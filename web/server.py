@@ -407,6 +407,43 @@ def traits(name: str, rel: str, u: dict = Depends(user)):
     return {k: (None if isinstance(v, float) and np.isnan(v) else v) for k, v in tr.items()}
 
 
+@app.get("/api/projects/{name}/pattern")
+def pattern(name: str, rel: str, u: dict = Depends(user)):
+    """This image's cortex pattern, live from its current masks (review.py's live plot): cell size per quarter
+    along the spoke and over all cortical cells. Redrawn when the mask or the scale changes."""
+    import matplotlib.pyplot as plt
+    import pattern_plots as PP
+    d = _project(u, name)
+    rel = _safe_rel(rel).as_posix()
+    key = RB.image_key(Path(rel))
+    npz = d / "anatomy" / "masks" / f"{key}.npz"
+    if not npz.exists():
+        raise HTTPException(404, "Not measured yet")
+    f = _cache(d, key, "pattern")
+    samples = d / "anatomy" / "samples.xlsx"
+    newest = max(npz.stat().st_mtime, samples.stat().st_mtime if samples.exists() else 0)
+    if not f.exists() or f.stat().st_mtime < newest:
+        cells, region, mx, _ = P.load_state(npz)
+        settings = json.loads((d / "anatomy" / "settings.json").read_text())
+        angle, centre, dropped = float(settings.get("quadrant_angle_deg", 0)), P.centre_of(region, P.load_centre(npz)), P.load_dropped(npz)
+        props, _, _ = P.derive(cells, region, mx, angle, centre)
+        props = P.drop_quarters(props, dropped)
+        paths = P.load_paths(npz) or P.auto_paths(cells, region, props, angle, centre)
+        ft = P.file_table(cells, region, props, paths[1], paths[2], dropped)
+        sc = P.um_per_px(d / "anatomy", rel)
+        um = not np.isnan(sc)
+        sc = sc if um else 1
+        fig, axs = plt.subplots(2, 1, figsize=(3.4, 4.6), dpi=150, layout="constrained")
+        PP.quadrant_profiles(axs, ft.assign(area=ft.area_px * sc * sc), props.assign(area=props.area_px * sc * sc),
+                             "area", "Cell area (µm²)" if um else "Cell area (px)", fontsize=7, compact=True)
+        for ax in axs:
+            ax.tick_params(labelsize=7)
+            ax.xaxis.label.set_size(8), ax.yaxis.label.set_size(8), ax.title.set_size(8)
+        fig.savefig(f)
+        plt.close(fig)
+    return FileResponse(f, headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/api/projects/{name}/all_traits")
 def all_traits(name: str, u: dict = Depends(user)):
     """Every measured image's numbers (for the per-image bars that show outliers). Cached per image until its

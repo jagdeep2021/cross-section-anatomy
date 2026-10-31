@@ -166,11 +166,10 @@
   <div class="msg" id="editMsg"></div>
   <h2>This image</h2>
   <div id="imgName" class="muted">–</div>
-  <dl id="traits"></dl>
-  <h2>All images <span class="muted" style="text-transform:none;letter-spacing:0">(this one highlighted, click a bar to open)</span></h2>
+  <h2>Traits <span class="muted" style="text-transform:none;letter-spacing:0">(bar = an image, this one green; click to open)</span></h2>
   <div id="bars"></div>
+  <h2>Cortex pattern <span class="muted" style="text-transform:none;letter-spacing:0">(this image, live)</span></h2>
   <a id="imgFigLink" target="_blank" hidden><img id="imgFig" alt="Cortex pattern of this image (click to enlarge)"></a>
-  <div class="msg" id="imgFigMsg"></div>
 </section>
 
 <script>
@@ -300,18 +299,12 @@ async function show(k) {
   if (fresh || S.gray.width !== S.lastW) fit();
   S.lastW = S.gray.width;
   draw();
-  $("traits").innerHTML = ""; S.quarters = null;
-  if (im.status !== "not measured") {
-    const t = await api(`${base}/traits${q}`), um = im.um_per_px;
+  S.quarters = null;
+  if (im.status !== "not measured") {                // the numbers live in the bars below; this gives the quarters
+    const t = await api(`${base}/traits${q}`);
     S.quarters = t.quarters; draw();
-    const rows = [["status", t.status], ["files per quarter", t.files_per_quarter.map(n => n ?? "–").join(" / ")],
-      ["cortical layers", t.n_cortical_layers], ["cortex cells", t.n_cortex_cells], ["air spaces", t.n_air_spaces],
-      ["metaxylem", t.mx_n],
-      um ? ["root area (mm²)", (t.root_area_px * um * um / 1e6).toFixed(3)] : ["root area (px)", t.root_area_px],
-      um ? ["stele area (mm²)", (t.stele_area_px * um * um / 1e6).toFixed(3)] : ["stele area (px)", t.stele_area_px],
-      um ? ["cortex width (µm)", (t.cortex_width_px * um).toFixed(0)] : ["cortex width (px)", t.cortex_width_px.toFixed(0)]];
-    $("traits").innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("");
   }
+  $("imgName").textContent = `${im.image} · ${im.status}`;
   imgFigure();
   drawBars();
 }
@@ -367,13 +360,11 @@ function figName(f) {                           // cortex_pattern_Maize_2026-10-
   const m = f.match(/^cortex_pattern_(.+)_(\d{4}-\d{2}-\d{2})\.png$/);
   return m ? `Cortex pattern · ${m[1]}  (${m[2]})` : f.replace(/\.png$/, "");
 }
-function imgFigure() {                            // this image's cortex pattern figure, from the last Make results
-  const im = S.images[S.i], f = im && "cortex_pattern/" + im.image.replace(/\.[^.]+$/, "").replaceAll("/", "__") + ".png";
-  const has = f && (S.figures || []).includes(f);
-  $("imgFigLink").hidden = !has;
-  $("imgFigMsg").textContent = im && im.status !== "not measured" && !has ? "Its cortex pattern graph appears here after Make results." : "";
-  if (has) {
-    const src = `/api/projects/${enc(S.project)}/figure?path=${enc(f)}&t=${Date.now()}`;
+function imgFigure() {                            // this image's cortex pattern, live from its current outlines
+  const im = S.images[S.i], on = im && im.status !== "not measured";
+  $("imgFigLink").hidden = !on;
+  if (on) {
+    const src = `/api/projects/${enc(S.project)}/pattern?rel=${enc(im.image)}&t=${Date.now()}`;
     $("imgFig").src = src; $("imgFigLink").href = src;
   }
 }
