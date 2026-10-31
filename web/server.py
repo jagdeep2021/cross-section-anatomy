@@ -299,13 +299,15 @@ def _notify(name: str, email: str, site: str):
 
 
 @app.post("/api/join")
-def join(request: Request, name: str = Form(""), email: str = Form("")):
+def join(request: Request, name: str = Form(""), email: str = Form(""), csa: str | None = Cookie(default=None)):
     """Ask for access from the page itself: this browser gets a cookie that works once an admin approves it.
     Anyone can ask, so an admin approves only people they know (the email is typed by the asker, not checked)."""
     name, email = name.strip()[:80], email.strip().lower()[:120]
     if not name or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
         raise HTTPException(400, "Enter your name and email.")
     users = _users()
+    if csa and _hash(csa) in users and users[_hash(csa)].get("approved", True):   # never swap an approved
+        raise HTTPException(400, "This browser is already signed in: reload the page.")  # login for a waiting one
     if sum(not u.get("approved", True) for u in users.values()) >= 50:
         raise HTTPException(429, "Too many requests waiting. Ask Jagdeep directly.")
     token = secrets.token_urlsafe(24)
