@@ -216,19 +216,20 @@ def gray_png(d: Path, rel: str) -> Path:
 
 
 OVERLAY = {"cell": (80, 255, 120, 200), "root": (255, 220, 0, 255), "stele": (0, 220, 255, 255),
-           "mx": (255, 60, 60, 110), "path": (255, 150, 0, 120)}
+           "mx": (255, 60, 60, 110), "path": (255, 150, 0, 120), "stele_fill": (0, 220, 255, 85)}
 
 
 def overlay_png(d: Path, rel: str) -> Path:
-    """Outlines as a transparent layer over the image: cells, root edge, stele edge, metaxylem and the spoke cells."""
+    """Outlines as a transparent layer over the image: cells, root edge, stele (shaded + edge), metaxylem, spoke cells."""
     key = RB.image_key(Path(rel))
     npz = d / "anatomy" / "masks" / f"{key}.npz"
-    f = _cache(d, key, "overlay")
+    f = _cache(d, key, "overlay2")                 # 2: stele shaded (older cached overlays are not reused)
     if f.exists() and f.stat().st_mtime >= npz.stat().st_mtime:
         return f
     cells, region, mx, _ = P.load_state(npz)
     _, path_q, path_cells = P.load_paths(npz) or ((), np.array([]), np.array([]))
     rgba = np.zeros((*cells.shape, 4), np.uint8)
+    rgba[region == 2] = OVERLAY["stele_fill"]      # the stele is an area: lightly shaded, its cells still visible
     rgba[np.isin(cells, path_cells) & (cells > 0)] = OVERLAY["path"]
     rgba[mx > 0] = OVERLAY["mx"]
     rgba[find_boundaries(cells, mode="inner") & (cells > 0)] = OVERLAY["cell"]
