@@ -16,8 +16,9 @@ from pathlib import Path
 
 import modal
 
-APP, GPU, CPU = "cross-section-anatomy", "L4", 4   # L4: ~3x a T4 for ~1.4x the price; the root/stele steps
-                                                    # after Cellpose run on the CPU (default 1/8 core: minutes per image)
+APP, CPU = "cross-section-anatomy", 4   # the root/stele steps after Cellpose run on the CPU (default 1/8 core: minutes)
+GPU = ["L4", "A10G", "T4"]   # first free one wins: L4 is ~3x a T4 for ~1.4x the price, but on 2026-10-31 no L4 was
+                             # free for 5+ min and measuring sat at "Waiting for the GPU"
 HERE = Path(__file__).parent
 PKGS = ([l.strip() for l in (HERE / "requirements.txt").read_text().splitlines()
          if l.strip() and l.split("==")[0] not in ("napari", "magicgui", "PyQt6")]  # no window on the server
