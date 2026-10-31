@@ -395,26 +395,35 @@ def traits(name: str, rel: str, u: dict = Depends(user)):
 @app.post("/api/projects/{name}/edit")
 def edit(name: str, rel: str = Form(...), target: str = Form(...), points: str = Form(...),
          remove: bool = Form(False), u: dict = Depends(user)):
-    """A drawn outline (points [[y, x], ...] in image pixels) applied with the desktop editor's own rules
-    (pipeline.edit_region); the image becomes 'reviewed'. Returns the image's new numbers."""
+    """A click (one point) or a drawn outline (points [[y, x], ...] in image pixels) on Cell / Metaxylem / Stele /
+    Root, applied with the desktop editor's own rules (pipeline.click_edit / outline_edit); the image becomes
+    'reviewed'. Returns the image's new numbers, plus a note when the edit needs a follow-up."""
     d = _project(u, name)
     rel = _safe_rel(rel).as_posix()
     npz = d / "anatomy" / "masks" / f"{RB.image_key(Path(rel))}.npz"
     if not npz.exists():
         raise HTTPException(404, "Not measured yet")
-    if target not in ("Stele", "Root"):
+    if target not in ("Cell", "Metaxylem", "Stele", "Root"):
         raise HTTPException(400, f"Editing {target} in the browser is not available yet: use the desktop app.")
     pts = np.asarray(json.loads(points), float)
-    if pts.ndim != 2 or pts.shape[1] != 2 or len(pts) < 3:
-        raise HTTPException(400, "Draw an outline: hold Shift and drag around the area.")
-    _, region, _, _ = P.load_state(npz)
-    region = region.copy()
-    m = P.outline_mask(pts, region.shape)
-    if m.sum() < 10:
-        raise HTTPException(400, "That outline is too small.")
-    P.edit_region(region, m, target, remove)
-    P.save_edit(npz, region=region)
-    return traits(name, rel, u)
+    if pts.ndim != 2 or pts.shape[1] != 2 or len(pts) in (0, 2):
+        raise HTTPException(400, "Click, or hold Shift and drag around the area.")
+    cells, region, mx, _ = P.load_state(npz)
+    cells, region, mx = cells.copy(), region.copy(), mx.copy()
+    note = ""
+    if len(pts) == 1:
+        y, x = (int(round(v)) for v in pts[0])
+        if not (0 <= y < cells.shape[0] and 0 <= x < cells.shape[1]):
+            raise HTTPException(400, "Click on the image.")
+        gray = P.load_gray(d / "raw" / rel) if target != "Root" else None
+        note = P.click_edit(gray, cells, region, mx, target, y, x, remove)
+    else:
+        m = P.outline_mask(pts, region.shape)
+        if m.sum() < 10:
+            raise HTTPException(400, "That outline is too small.")
+        P.outline_edit(cells, region, mx, target, m, remove)
+    P.save_edit(npz, cells=cells, region=region, mx=mx)
+    return {**traits(name, rel, u), "note": note}
 
 
 @app.post("/api/projects/{name}/scale")

@@ -740,45 +740,18 @@ class Reviewer:
         keep = ~np.isin(self.path_cells, list(labels))
         self.path_q, self.path_cells = self.path_q[keep], self.path_cells[keep]
 
-    def _take(self, arr, m, merge):
-        """Give pixels m to a new object in arr; one owner per pixel."""
-        new = int(arr.max()) + 1
-        hit = {int(l): int((arr == l).sum()) for l in np.unique(arr[m]) if l}
-        arr[m] = new
-        for l, before in hit.items():
-            if merge:
-                arr[arr == l] = new                 # vessels never touch: overlap = same vessel
-            elif (arr == l).sum() < 0.25 * before:
-                arr[arr == l] = 0                   # no slivers
-        return new
-
     def click_edit(self, y, x, remove):
         cells, mx, region, t = self.cells.data, self.mx.data, self.region.data, self.target
         lbl = int(cells[y, x])
-        if t == "Cell":
-            if remove and lbl:
-                cells[cells == lbl] = 0
-            elif not remove:
-                P.add_cell(self.gray, cells, y, x)
-        elif t == "Metaxylem":
-            if remove and mx[y, x]:
-                mx[mx == mx[y, x]] = 0
-            elif not remove and not mx[y, x]:
-                P.add_mx(self.gray, mx, cells, y, x)
-        elif t == "Stele":
-            if remove:
-                region[region == 2] = 1             # the whole stele goes; redraw it with Shift-drag
-                self._refresh()
-                self.info.value += "\nStele removed. Shift-drag around the stele to draw it again."
+        if t in ("Cell", "Metaxylem", "Stele", "Root"):    # same rules as the web page
+            note = P.click_edit(self.gray, cells, region, mx, t, y, x, remove)
+            if note:
+                if t == "Stele":
+                    self._refresh()
+                self.info.value += "\n" + note
                 return
-            else:
-                m = cells == lbl if lbl else P.lumen_at(self.gray, y, x, 8 * P.typical_cell_area(cells))
-                region[m] = 2
         elif t == "File path" and lbl:
             self._path_remove([lbl]) if remove or lbl in self.path_cells else self._path_add([lbl])
-        elif t == "Root":
-            self.info.value += "\nRoot: Shift-drag around the root to set its outline."
-            return
         elif t == "Quarters":                       # Cmd/Ctrl-click = drop this quarter (damaged), click = back in
             q = int(P.quadrant_of(y, x, self._centre(), self.angle))
             self.dropped = self.dropped | {q} if remove else self.dropped - {q}
@@ -795,26 +768,15 @@ class Reviewer:
             return
         cells, mx, region, t = self.cells.data, self.mx.data, self.region.data, self.target
         inside = [int(l) for l in np.unique(cells[m]) if l and (cells[m] == l).sum() >= 0.5 * (cells == l).sum()]
-        if t == "Cell":
-            if remove:
-                cells[m] = 0
-            else:
-                self._take(cells, m, merge=False)
-        elif t == "Metaxylem":
-            if remove:
-                mx[m] = 0
-            else:
-                self._take(mx, m, merge=True)
-                cells[m] = 0                        # a vessel is not a cell
-        elif t in ("Stele", "Root"):
-            P.edit_region(region, m, t, remove)     # same rules as the web page
+        if t in ("Cell", "Metaxylem", "Stele", "Root"):
+            P.outline_edit(cells, region, mx, t, m, remove)   # same rules as the web page
         elif t == "File path":
             if remove:
                 self._path_remove(inside)
             else:
                 empty = m & (cells == 0)            # an outline over a gap draws the missing cell
                 if empty.sum() > 0.3 * m.sum():
-                    inside.append(self._take(cells, m, merge=False))
+                    inside.append(P.take(cells, m, merge=False))
                 self._path_add(inside)
         self._refresh()
 

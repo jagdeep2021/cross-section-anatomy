@@ -121,7 +121,7 @@
 <main id="view">
   <canvas id="cv"></canvas>
   <div class="empty" id="empty">Pick a project, add images, then Outline new images.</div>
-  <div class="hint">drag = move · scroll = zoom · Shift-drag = draw · O = outlines on/off · ← → = previous / next</div>
+  <div class="hint">drag = move · scroll = zoom · click = add · ⌘/Ctrl-click = remove · Shift-drag = draw · O = outlines on/off · ← → = previous / next</div>
 </main>
 
 <section class="side">
@@ -136,14 +136,16 @@
   </div>
   <h2>Edit</h2>
   <div class="seg" id="target">
+    <button type="button" data-t="Cell">Cell <span class="muted">1</span></button>
+    <button type="button" data-t="Metaxylem">Mx <span class="muted">2</span></button>
     <button type="button" data-t="Stele" class="on">Stele <span class="muted">3</span></button>
     <button type="button" data-t="Root">Root <span class="muted">6</span></button>
   </div>
   <div class="keys" id="keys">
-    <b>Shift-drag</b> around the area: draw it<br>
-    <b>Ctrl/⌘-Shift-drag</b>: remove it<br>
-    Stele: the area becomes stele · Root: this outline is the root<br>
-    Cells, metaxylem, file path: desktop app for now
+    <b>Click</b>: add here (cell / vessel fills to its walls; stele: that cell joins it)<br>
+    <b>Ctrl/⌘-click</b>: remove what is under the cursor<br>
+    <b>Shift-drag</b> around an area: draw it · <b>Ctrl/⌘-Shift-drag</b>: clear it<br>
+    Root: Shift-drag only · File path, quarters: desktop app for now
   </div>
   <div class="msg" id="editMsg"></div>
   <h2>This image</h2>
@@ -303,10 +305,11 @@ function draw() {
     S.pen.pts.forEach(([py, px], k) => k ? ctx.lineTo(x + px * s, y + py * s) : ctx.moveTo(x + px * s, y + py * s));
     if (!S.pen.live) ctx.closePath();
     ctx.lineWidth = 2; ctx.setLineDash(S.pen.remove ? [6, 4] : []);
-    ctx.strokeStyle = S.pen.remove ? "#ff5a5a" : (S.target === "Stele" ? "rgb(0,220,255)" : "rgb(255,220,0)");
+    ctx.strokeStyle = S.pen.remove ? "#ff5a5a" : COLOR[S.target];
     ctx.stroke(); ctx.setLineDash([]);
   }
 }
+const COLOR = { Cell: "rgb(80,255,120)", Metaxylem: "rgb(255,60,60)", Stele: "rgb(0,220,255)", Root: "rgb(255,220,0)" };
 function toImg(e) {                              // screen -> image pixel (y, x)
   const r = cv.getBoundingClientRect(), { s, x, y } = S.view;
   return [(e.clientY - r.top - y) / s, (e.clientX - r.left - x) / s];
@@ -320,13 +323,13 @@ async function applyEdit(pen) {
   const im = S.images[S.i];
   S.saving = true; $("editMsg").textContent = "Saving…";
   try {
-    await api(`/api/projects/${enc(S.project)}/edit`, form({ rel: im.image, target: S.target,
+    const r = await api(`/api/projects/${enc(S.project)}/edit`, form({ rel: im.image, target: S.target,
       points: JSON.stringify(pen.pts.map(([py, px]) => [Math.round(py * 10) / 10, Math.round(px * 10) / 10])),
       remove: pen.remove }));
     im.status = "reviewed";
     document.querySelector(`#imgList li[data-k="${S.i}"] .dot`)?.setAttribute("class", "dot reviewed");
     await show(S.i);                             // new overlay + numbers
-    $("editMsg").textContent = `${S.target} ${pen.remove ? "removed" : "saved"}.`;
+    $("editMsg").textContent = r.note || `${S.target} ${pen.remove ? "removed" : "saved"}.`;
   } catch (e) { $("editMsg").textContent = ""; showErr(e); }
   finally { S.saving = false; S.pen = null; draw(); }
 }
@@ -344,7 +347,8 @@ cv.addEventListener("pointerdown", e => {
     showErr(""); S.pen = { pts: [toImg(e)], remove: e.ctrlKey || e.metaKey, live: true, last: [e.clientX, e.clientY] };
     return;
   }
-  drag = { x: e.clientX, y: e.clientY }; cv.style.cursor = "grabbing";
+  drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, at: toImg(e), remove: e.ctrlKey || e.metaKey };
+  cv.style.cursor = "grabbing";
 });
 cv.addEventListener("pointermove", e => {
   if (S.pen && S.pen.live) {
@@ -360,8 +364,13 @@ cv.addEventListener("pointerup", () => {
     if (S.pen.pts.length >= 3) applyEdit(S.pen); else S.pen = null;
     return;
   }
+  const im = S.images[S.i];                       // a click without movement edits; a drag only moves the view
+  if (drag && Math.hypot(drag.x - drag.x0, drag.y - drag.y0) < 4 && im && im.status !== "not measured" && !S.saving) {
+    showErr(""); applyEdit({ pts: [drag.at], remove: drag.remove });
+  }
   drag = null; cv.style.cursor = "grab";
 });
+cv.addEventListener("contextmenu", e => e.preventDefault());   // Ctrl-click on a Mac must not open a menu
 addEventListener("resize", draw);
 $("ovOp").oninput = draw;
 $("imgList").onclick = e => { const li = e.target.closest("li"); if (li) show(+li.dataset.k).catch(showErr); };
@@ -370,6 +379,8 @@ addEventListener("keydown", e => {
   if (e.key === "ArrowRight") show(S.i + 1).catch(showErr);
   if (e.key === "ArrowLeft") show(S.i - 1).catch(showErr);
   if (e.key === "o" || e.key === "O") { S.showOv = !S.showOv; draw(); }
+  if (e.key === "1") setTarget("Cell");
+  if (e.key === "2") setTarget("Metaxylem");
   if (e.key === "3") setTarget("Stele");
   if (e.key === "6") setTarget("Root");
 });

@@ -88,8 +88,8 @@ Access: share the site address; a new person types name + email and asks, an adm
 panel (that browser then works). Or send a personal login link: `python cloud.py invite <email> [--admin]`.
 Anyone can type any email, so approve only people you know.
 Tested 2026-10-31: login, project, upload, measure, Make results, download.
-Editing in the browser: Stele and Root by Shift-drag (Ctrl/⌘-Shift-drag removes; keys 3 / 6), same rules as the
-desktop (`pipeline.edit_region`, shared). Next: click editing for (cells, metaxylem, stele, file path, quarters) on the server's edit functions; per-user quotas;
+Editing in the browser: Cell (1), Metaxylem (2), Stele (3) by click / Ctrl-⌘-click / Shift-drag, Root (6) by
+Shift-drag, same rules as the desktop (`pipeline.click_edit` / `outline_edit`, shared). Next: file path and quarters; per-user quotas;
 a container for deployment (MU server or a GPU service, whichever IT approves).
 
 ## Editable state

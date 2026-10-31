@@ -527,6 +527,68 @@ def edit_region(region: np.ndarray, m: np.ndarray, target: str, remove: bool = F
         raise ValueError(f"edit_region: no rule for {target}")
 
 
+def take(arr: np.ndarray, m: np.ndarray, merge: bool) -> int:
+    """Give pixels m to a new object in arr (in place); one owner per pixel. merge: objects it touches join it
+    (vessels never touch, so overlap = same vessel); else a cell left with < 25% of itself goes (no slivers)."""
+    new = int(arr.max()) + 1
+    hit = {int(l): int((arr == l).sum()) for l in np.unique(arr[m]) if l}
+    arr[m] = new
+    for l, before in hit.items():
+        if merge:
+            arr[arr == l] = new
+        elif (arr == l).sum() < 0.25 * before:
+            arr[arr == l] = 0
+    return new
+
+
+def click_edit(gray, cells, region, mx, target: str, y: int, x: int, remove: bool = False) -> str:
+    """A click at (y, x) on Cell / Metaxylem / Stele, in place. The desktop editor and the web page share it.
+    Cell: fill the lumen out to its walls (remove: the cell under the click goes). Metaxylem: same for a vessel.
+    Stele: the cell under the click becomes stele (remove: the whole stele goes; redraw it). Returns a note."""
+    lbl = int(cells[y, x])
+    if target == "Cell":
+        if remove and lbl:
+            cells[cells == lbl] = 0
+        elif not remove:
+            add_cell(gray, cells, y, x)
+    elif target == "Metaxylem":
+        if remove and mx[y, x]:
+            mx[mx == mx[y, x]] = 0
+        elif not remove and not mx[y, x]:
+            add_mx(gray, mx, cells, y, x)
+    elif target == "Stele":
+        if remove:
+            region[region == 2] = 1
+            return "Stele removed. Shift-drag around the stele to draw it again."
+        region[cells == lbl if lbl else lumen_at(gray, y, x, 8 * typical_cell_area(cells))] = 2
+    elif target == "Root":
+        return "Root: Shift-drag around the root to set its outline."
+    else:
+        raise ValueError(f"click_edit: no rule for {target}")
+    return ""
+
+
+def outline_edit(cells, region, mx, target: str, m: np.ndarray, remove: bool = False) -> None:
+    """A drawn outline m on Cell / Metaxylem / Stele / Root, in place (shared by desktop and web).
+    Cell: a new cell (remove: clear the area). Metaxylem: a vessel, merged with any it overlaps, no longer a cell
+    (remove: clear). Stele / Root: edit_region."""
+    if target == "Cell":
+        if remove:
+            cells[m] = 0
+        else:
+            take(cells, m, merge=False)
+    elif target == "Metaxylem":
+        if remove:
+            mx[m] = 0
+        else:
+            take(mx, m, merge=True)
+            cells[m] = 0
+    elif target in ("Stele", "Root"):
+        edit_region(region, m, target, remove)
+    else:
+        raise ValueError(f"outline_edit: no rule for {target}")
+
+
 def save_edit(npz_path, **changes) -> None:
     """Save changed arrays into an image's npz, keeping everything else in it, and mark it reviewed."""
     z = np.load(npz_path, allow_pickle=False)
