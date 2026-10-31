@@ -67,7 +67,7 @@ and writes `compare_<other>_vs_<reference>.xlsx` next to `other`: per trait n ch
 limits of agreement (Bland & Altman 1986), mean |% difference| and Lin's CCC (Lin 1989); per image the values.
 For the examples, the reference is `summarise.py examples/<set>/anatomy` on the untouched (auto) copy from git.
 
-## Web version (branch `web`, in progress)
+## Web version (live on Modal; browser editing in progress)
 
 The same pipeline behind a browser page, for laptops without a GPU and users outside the lab. `web/server.py`
 (FastAPI) keeps each project in the desktop layout (`raw/`, `anatomy/`, `results/`) and calls `run_batch.batch`,
@@ -81,6 +81,10 @@ The same pipeline behind a browser page, for laptops without a GPU and users out
 ```
 Done: invite-only accounts (only the token hash is stored), projects, folder upload (folders become groups), queued
 GPU measuring with progress, image + outline layers with pan/zoom, per-image numbers, scale, Make results, download zip.
+Live: https://jagdeep2021--cross-section-anatomy-web.us-east.modal.run (deployed from `cloud.py` with
+`modal deploy cloud.py`; a CPU machine serves the page, measuring goes to the GPU function, projects live on the
+Modal volume `csa-web-data`, saved after every change). Login links: `python cloud.py invite <email> [--admin]`.
+Tested 2026-10-31: login, project, upload, measure, Make results, download.
 Next: click editing (cells, metaxylem, stele, file path, quarters) on the server's edit functions; per-user quotas;
 a container for deployment (MU server or a GPU service, whichever IT approves).
 

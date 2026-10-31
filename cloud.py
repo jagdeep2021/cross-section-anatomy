@@ -68,3 +68,64 @@ def propose(path, diameter=None):
     z = np.load(io.BytesIO(packed))
     print(f"[cloud] measured in {gpu_s} s on the server, {time.time() - t:.0f} s round trip", flush=True)
     return P.load_gray(path), z["cells"], z["region"], z["mx"]
+
+
+# ---------------------------------------------------------------- the web version (web/server.py) on Modal
+# One small CPU machine serves the page (no torch: starts in seconds, ~free while idle); measuring calls
+# propose_remote above. Projects live on a Modal volume in the desktop layout, so any project downloads as a zip
+# and opens in the desktop app. max_containers=1: one server owns the files and the job queue.
+#   modal deploy cloud.py                                   -> prints the site's URL
+#   python cloud.py invite someone@missouri.edu [--admin]   -> prints that person's login link (keep it private)
+
+WEB_PKGS = [p for p in PKGS if p.split("==")[0] not in ("torch", "cellpose")] + \
+    ([l.strip() for l in (HERE / "web/requirements-web.txt").read_text().splitlines()
+      if l.strip() and not l.startswith("-r")] if modal.is_local() else [])
+web_data = modal.Volume.from_name("csa-web-data", create_if_missing=True)
+web_image = (modal.Image.debian_slim(python_version="3.13")
+             .apt_install("libgl1", "libglib2.0-0")
+             .pip_install(*WEB_PKGS)
+             .env({"CSA_DATA": "/data"})
+             .add_local_python_source("pipeline", "run_batch", "summarise", "pattern_plots")
+             .add_local_dir(HERE / "web", "/root/web"))
+
+
+def _propose_on_gpu(path, diameter=None):
+    """The web server's outlining step: the image goes to propose_remote; gray is made here for the QC image."""
+    import io
+    import numpy as np
+    import pipeline as P
+    print(f"[gpu] sending {Path(path).name}", flush=True)
+    packed, secs = propose_remote.remote(Path(path).name, Path(path).read_bytes(), diameter)
+    print(f"[gpu] {Path(path).name} done in {secs} s", flush=True)
+    z = np.load(io.BytesIO(packed))
+    return P.load_gray(path), z["cells"], z["region"], z["mx"]
+
+
+@app.function(image=web_image, volumes={"/data": web_data}, cpu=2, memory=4096, max_containers=1,
+              scaledown_window=900, timeout=24 * 3600)
+@modal.concurrent(max_inputs=50)
+@modal.asgi_app()
+def web():
+    import sys
+    sys.path.insert(0, "/root/web")
+    import server
+    server.start_worker(propose=_propose_on_gpu, commit=web_data.commit, reload=web_data.reload)
+    return server.app
+
+
+@app.function(image=web_image, volumes={"/data": web_data})
+def invite(email: str, admin: bool = False) -> str:
+    import sys
+    sys.path.insert(0, "/root/web")
+    import server
+    token = server.invite(email, admin)
+    web_data.commit()
+    return token
+
+
+if __name__ == "__main__":                       # python cloud.py invite <email> [--admin]: on the deployed app
+    import sys
+    if len(sys.argv) < 3 or sys.argv[1] != "invite":
+        sys.exit(__doc__)
+    token = modal.Function.from_name(APP, "invite").remote(sys.argv[2], "--admin" in sys.argv)
+    print(f"{modal.Function.from_name(APP, 'web').get_web_url()}/login?token={token}")

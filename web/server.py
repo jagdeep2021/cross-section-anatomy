@@ -44,6 +44,17 @@ import summarise as SUM   # noqa: E402
 DATA = Path(os.environ.get("CSA_DATA", Path(__file__).resolve().parent.parent / "web_data")).resolve()
 STATIC = Path(__file__).resolve().parent / "static"
 app = FastAPI(title="Root cross-section anatomy")
+COMMIT = [lambda: None]                 # persists the data after a change (set on Modal: the volume's commit)
+RELOAD = [lambda: None]                 # sees changes made elsewhere, e.g. an invite (set on Modal: volume reload)
+
+
+@app.middleware("http")
+async def _persist(request, call_next):
+    response = await call_next(request)
+    if request.method != "GET":         # uploads, scale, results ... saved before the next request can need them
+        import asyncio
+        await asyncio.to_thread(COMMIT[0])   # off the event loop: a blocking call there can stall the GPU calls
+    return response
 
 
 # ---------------------------------------------------------------- accounts (invite-only)
@@ -70,6 +81,12 @@ def invite(email: str, admin: bool = False) -> str:
 
 def user(csa: str | None = Cookie(default=None)) -> dict:
     u = _users().get(_hash(csa)) if csa else None
+    if u is None and csa:                # a new invite was written by another machine: look once more
+        try:
+            RELOAD[0]()
+        except Exception:
+            pass
+        u = _users().get(_hash(csa))
     if u is None:
         raise HTTPException(401, "Not signed in: open your login link again.")
     return u
@@ -125,19 +142,31 @@ JOBS: dict[str, dict] = {}            # project path -> progress the page polls
 WORK: queue.Queue = queue.Queue()
 
 
-def _worker():
+def _worker(propose=None, commit=lambda: None):
+    """propose: the outlining step (None = this machine's GPU; on Modal the GPU function). commit: persist the data
+    after each image (Modal volume), so a restart loses at most the image in progress; batch resumes from there."""
     while True:
         d = WORK.get()
         job = JOBS[str(d)]
         job.update(state="running", started=time.time())
+        print(f"[measure] start {d}", flush=True)
         try:
-            for i, n, line in RB.batch(d / "raw", d / "anatomy"):
+            for i, n, line in RB.batch(d / "raw", d / "anatomy", propose=propose):
                 job.update(i=i, n=n, line=line)
+                print(f"[measure] {i}/{n} {line}", flush=True)
+                commit()
             job.update(state="done", line="All images measured.")
         except Exception as e:                       # shown on the page; the server keeps running
+            import traceback
+            traceback.print_exc()
             job.update(state="error", line=f"{type(e).__name__}: {e}")
         finally:
             WORK.task_done()
+
+
+def start_worker(propose=None, commit=lambda: None, reload=lambda: None):
+    COMMIT[0], RELOAD[0] = commit, reload
+    threading.Thread(target=_worker, args=(propose, commit), daemon=True).start()
 
 
 def queue_measure(d: Path) -> dict:
@@ -194,6 +223,11 @@ def overlay_png(d: Path, rel: str) -> Path:
 
 @app.get("/login")
 def login(token: str):
+    if _hash(token) not in _users():
+        try:
+            RELOAD[0]()                  # the invite may have been written by another machine just now
+        except Exception:
+            pass
     if _hash(token) not in _users():
         raise HTTPException(401, "This login link is not valid (it may have been replaced). Ask Jagdeep for a new one.")
     r = RedirectResponse("/")
@@ -351,7 +385,7 @@ def main():
         print(f"{a.base}/login?token={invite(a.email, a.admin)}")
         return
     import uvicorn
-    threading.Thread(target=_worker, daemon=True).start()
+    start_worker()
     uvicorn.run(app, host=a.host, port=a.port)
 
 
