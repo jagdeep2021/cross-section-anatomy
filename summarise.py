@@ -186,8 +186,8 @@ def main(anatomy_dir: Path):
                            stele_radius_um=ft.stele_radius_px * s, root_radius_um=ft.root_radius_px * s)
             file_rows.append(ft.assign(**meta, tech_rep=tech, status=status))
             um = not np.isnan(s)
-            PP.image_figure(P.load_gray(P.image_dir(anatomy_dir, settings) / rel), cells, region, ft,
-                            props.assign(area_um2=props.area_px * s * s), centre, angle, "area_um2" if um else "area_px", "Cell area (µm²)" if um else "Cell area (px)",
+            PP.image_figure(ft, props.assign(area_um2=props.area_px * s * s), "area_um2" if um else "area_px",
+                            "Cell area (µm²)" if um else "Cell area (px)",
                             f"{rel}  ·  {status}", fig_dir / (Path(rel).with_suffix("").as_posix().replace("/", "__") + ".png"))
 
         mxt = pd.DataFrame(measure.regionprops_table(mx, properties=("label", "area", "centroid", "axis_major_length",

@@ -15,9 +15,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.colors import to_rgb
 from scipy.interpolate import make_smoothing_spline
-from skimage.segmentation import find_boundaries
 
 QCOL = {1: "#2a78d6", 2: "#eb6834", 3: "#1baf7a", 4: "#eda100"}   # validated CVD-safe; every line is labelled
 GCOL = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
@@ -149,31 +147,12 @@ def quadrant_profiles(axs, ft, cells, y_col, y_lab, fontsize=9, compact=False):
 
 
 # ---------------------------------------------------------------- figures
-def image_figure(gray, cells, region, ft, props, centre, angle, y_col, y_lab, title, out):
-    fig, (a, *bs) = plt.subplots(1, 3, figsize=(14, 4.6), gridspec_kw={"width_ratios": [1, 1.1, 1.1]})
-    rgb = np.dstack([gray] * 3) * 0.85
-    for q, d in ft.groupby("quadrant"):
-        m = np.isin(cells, d.label.values)
-        rgb[m] = 0.45 * rgb[m] + 0.55 * np.array(to_rgb(QCOL[q]))
-    rgb[find_boundaries(region == 2, mode="inner")] = 1
-    ys, xs = np.nonzero(region >= 1)
-    pad = 15
-    y0, y1, x0, x1 = max(ys.min() - pad, 0), ys.max() + pad, max(xs.min() - pad, 0), xs.max() + pad
-    a.imshow(rgb[y0:y1, x0:x1], extent=(x0, x1, y1, y0))
-    cy, cx = centre
-    L = max(y1 - y0, x1 - x0)
-    for k in range(4):
-        t = np.radians(angle + 90 * k)
-        a.plot([cx, cx + L * np.cos(t)], [cy, cy - L * np.sin(t)], color="white", lw=1, alpha=0.9)
-    r = 0.42 * min(y1 - y0, x1 - x0)
-    for q in (1, 2, 3, 4):
-        t = np.radians(angle + 90 * q - 45)
-        a.text(cx + r * np.cos(t), cy - r * np.sin(t), f"Q{q}", color="white", fontsize=12, fontweight="bold",
-               ha="center", va="center")
-    a.set_xlim(x0, x1), a.set_ylim(y1, y0), a.axis("off")
-    a.set_title(title, fontsize=9, fontweight="normal", color=MUTED)
+def image_figure(ft, props, y_col, y_lab, title, out):
+    """One image's cortex pattern: cell size along the spoke and across all cortical cells, per quarter."""
+    fig, bs = plt.subplots(1, 2, figsize=(10, 4.4))
     quadrant_profiles(bs, ft, props, y_col, y_lab)
-    fig.tight_layout()
+    fig.suptitle(title, x=0.01, ha="left", fontsize=10, color=MUTED)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
     fig.savefig(out, dpi=200)
     plt.close(fig)
 
