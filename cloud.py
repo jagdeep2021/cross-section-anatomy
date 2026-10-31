@@ -110,7 +110,7 @@ def _propose_on_gpu(path, diameter=None):
 @app.function(image=web_image, volumes={"/data": web_data}, cpu=2, memory=4096, max_containers=1,
               scaledown_window=900, timeout=24 * 3600)
 @modal.concurrent(max_inputs=50)
-@modal.asgi_app()
+@modal.asgi_app(label="root-anatomy")   # the site address: https://jagdeep2021--root-anatomy.modal.run
 def web():
     import sys
     sys.path.insert(0, "/root/web")
