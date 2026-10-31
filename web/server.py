@@ -35,6 +35,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from skimage.segmentation import find_boundaries
+from scipy import ndimage as ndi
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pipeline as P      # noqa: E402
@@ -213,8 +214,10 @@ def overlay_png(d: Path, rel: str) -> Path:
     rgba[np.isin(cells, path_cells) & (cells > 0)] = OVERLAY["path"]
     rgba[mx > 0] = OVERLAY["mx"]
     rgba[find_boundaries(cells, mode="inner") & (cells > 0)] = OVERLAY["cell"]
-    rgba[find_boundaries(region >= 1, mode="inner") & (region >= 1)] = OVERLAY["root"]
-    rgba[find_boundaries(region == 2, mode="inner") & (region == 2)] = OVERLAY["stele"]
+    w = max(2, round(max(cells.shape) / 600))      # root and stele edges thick enough to see on a whole-image view
+    edge = lambda m: ndi.binary_dilation(find_boundaries(m, mode="inner") & m, iterations=w) & m
+    rgba[edge(region >= 1)] = OVERLAY["root"]
+    rgba[edge(region == 2)] = OVERLAY["stele"]
     Image.fromarray(rgba, "RGBA").save(f, optimize=True)
     return f
 
@@ -326,6 +329,31 @@ def traits(name: str, rel: str, u: dict = Depends(user)):
     tr["files_per_quarter"] = [int((np.asarray(path_q) == q).sum()) for q in (1, 2, 3, 4)]
     tr["status"] = status
     return {k: (None if isinstance(v, float) and np.isnan(v) else v) for k, v in tr.items()}
+
+
+@app.post("/api/projects/{name}/edit")
+def edit(name: str, rel: str = Form(...), target: str = Form(...), points: str = Form(...),
+         remove: bool = Form(False), u: dict = Depends(user)):
+    """A drawn outline (points [[y, x], ...] in image pixels) applied with the desktop editor's own rules
+    (pipeline.edit_region); the image becomes 'reviewed'. Returns the image's new numbers."""
+    d = _project(u, name)
+    rel = _safe_rel(rel).as_posix()
+    npz = d / "anatomy" / "masks" / f"{RB.image_key(Path(rel))}.npz"
+    if not npz.exists():
+        raise HTTPException(404, "Not measured yet")
+    if target not in ("Stele", "Root"):
+        raise HTTPException(400, f"Editing {target} in the browser is not available yet: use the desktop app.")
+    pts = np.asarray(json.loads(points), float)
+    if pts.ndim != 2 or pts.shape[1] != 2 or len(pts) < 3:
+        raise HTTPException(400, "Draw an outline: hold Shift and drag around the area.")
+    _, region, _, _ = P.load_state(npz)
+    region = region.copy()
+    m = P.outline_mask(pts, region.shape)
+    if m.sum() < 10:
+        raise HTTPException(400, "That outline is too small.")
+    P.edit_region(region, m, target, remove)
+    P.save_edit(npz, region=region)
+    return traits(name, rel, u)
 
 
 @app.post("/api/projects/{name}/scale")

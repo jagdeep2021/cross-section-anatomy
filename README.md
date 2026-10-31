@@ -85,7 +85,8 @@ Live: https://jagdeep2021--cross-section-anatomy-web.us-east.modal.run (deployed
 `modal deploy cloud.py`; a CPU machine serves the page, measuring goes to the GPU function, projects live on the
 Modal volume `csa-web-data`, saved after every change). Login links: `python cloud.py invite <email> [--admin]`.
 Tested 2026-10-31: login, project, upload, measure, Make results, download.
-Next: click editing (cells, metaxylem, stele, file path, quarters) on the server's edit functions; per-user quotas;
+Editing in the browser: Stele and Root by Shift-drag (Ctrl/⌘-Shift-drag removes; keys 3 / 6), same rules as the
+desktop (`pipeline.edit_region`, shared). Next: click editing for (cells, metaxylem, stele, file path, quarters) on the server's edit functions; per-user quotas;
 a container for deployment (MU server or a GPU service, whichever IT approves).
 
 ## Editable state

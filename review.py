@@ -806,14 +806,8 @@ class Reviewer:
             else:
                 self._take(mx, m, merge=True)
                 cells[m] = 0                        # a vessel is not a cell
-        elif t == "Stele":
-            region[m & (region >= 1)] = 1 if remove else 2     # stele stays inside the root
-        elif t == "Root":
-            if remove:
-                region[m] = 0                       # cut this area out of the root
-            else:                                   # this outline is the root: outside goes, the stele inside stays
-                region[~m] = 0
-                region[m & (region == 0)] = 1
+        elif t in ("Stele", "Root"):
+            P.edit_region(region, m, t, remove)     # same rules as the web page
         elif t == "File path":
             if remove:
                 self._path_remove(inside)

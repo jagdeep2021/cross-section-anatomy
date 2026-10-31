@@ -501,6 +501,41 @@ def drop_quarters(props, dropped):
     return props
 
 
+def outline_mask(pts, shape) -> np.ndarray:
+    """A drawn outline (points as (y, x) in image pixels) -> the filled area inside it."""
+    from skimage.draw import polygon
+    pts = np.asarray(pts, float)
+    m = np.zeros(shape, bool)
+    rr, cc = polygon(pts[:, 0], pts[:, 1], shape)
+    m[rr, cc] = True
+    return m
+
+
+def edit_region(region: np.ndarray, m: np.ndarray, target: str, remove: bool = False) -> None:
+    """Apply a drawn outline m to region (in place). The one rule set for the desktop editor and the web page.
+    Stele: the area becomes stele, staying inside the root (remove: back to plain root).
+    Root:  this outline is the root, the stele inside it kept (remove: the area is cut out of the root)."""
+    if target == "Stele":
+        region[m & (region >= 1)] = 1 if remove else 2
+    elif target == "Root":
+        if remove:
+            region[m] = 0
+        else:
+            region[~m] = 0
+            region[m & (region == 0)] = 1
+    else:
+        raise ValueError(f"edit_region: no rule for {target}")
+
+
+def save_edit(npz_path, **changes) -> None:
+    """Save changed arrays into an image's npz, keeping everything else in it, and mark it reviewed."""
+    z = np.load(npz_path, allow_pickle=False)
+    f = {k: z[k] for k in z.files}
+    f.update(changes)
+    save_state(npz_path, f.pop("cells"), f.pop("region"), f.pop("mx"), status="reviewed",
+               **{k: v for k, v in f.items() if k != "status"})
+
+
 def load_state(npz_path):
     z = np.load(npz_path, allow_pickle=False)
     return z["cells"], z["region"], z["mx"], str(z["status"])

@@ -52,6 +52,13 @@
   dt { color:var(--muted); } dd { margin:0; text-align:right; }
   .legend span { display:inline-flex; align-items:center; gap:5px; margin:2px 10px 2px 0; font-size:12px; }
   .legend i { width:12px; height:3px; display:inline-block; }
+  .seg { display:flex; gap:0; }
+  .seg button { flex:1; border-radius:0; }
+  .seg button:first-child { border-radius:6px 0 0 6px; }
+  .seg button:last-child { border-radius:0 6px 6px 0; margin-left:-1px; }
+  .seg button.on { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+  .keys { font-size:12px; color:var(--muted); line-height:1.5; }
+  .keys b { color:var(--ink); font-weight:600; }
   label.file { display:inline-block; }
   label.file input { display:none; }
   @media (max-width: 900px) {
@@ -103,7 +110,7 @@
 <main id="view">
   <canvas id="cv"></canvas>
   <div class="empty" id="empty">Pick a project, add images, then Outline new images.</div>
-  <div class="hint">drag = move · scroll = zoom · O = outlines on/off · ← → = previous / next</div>
+  <div class="hint">drag = move · scroll = zoom · Shift-drag = draw · O = outlines on/off · ← → = previous / next</div>
 </main>
 
 <section class="side">
@@ -116,6 +123,18 @@
     <span><i style="background:rgb(255,60,60)"></i>metaxylem</span>
     <span><i style="background:rgb(255,150,0)"></i>file path</span>
   </div>
+  <h2>Edit</h2>
+  <div class="seg" id="target">
+    <button type="button" data-t="Stele" class="on">Stele <span class="muted">3</span></button>
+    <button type="button" data-t="Root">Root <span class="muted">6</span></button>
+  </div>
+  <div class="keys" id="keys">
+    <b>Shift-drag</b> around the area: draw it<br>
+    <b>Ctrl/⌘-Shift-drag</b>: remove it<br>
+    Stele: the area becomes stele · Root: this outline is the root<br>
+    Cells, metaxylem, file path: desktop app for now
+  </div>
+  <div class="msg" id="editMsg"></div>
   <h2>This image</h2>
   <div id="imgName" class="muted">–</div>
   <dl id="traits"></dl>
@@ -124,7 +143,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const S = { project: null, images: [], i: -1, gray: null, ov: null, poll: null,
-            view: { s: 1, x: 0, y: 0 }, showOv: true };
+            view: { s: 1, x: 0, y: 0 }, showOv: true, target: "Stele", pen: null, saving: false };
 
 async function api(path, opt = {}) {
   const r = await fetch(path, opt);
@@ -268,6 +287,37 @@ function draw() {
   ctx.imageSmoothingEnabled = s < 1;
   ctx.drawImage(S.gray, x, y, S.gray.width * s, S.gray.height * s);
   if (S.ov && S.showOv) { ctx.globalAlpha = +$("ovOp").value; ctx.drawImage(S.ov, x, y, S.ov.width * s, S.ov.height * s); ctx.globalAlpha = 1; }
+  if (S.pen && S.pen.pts.length > 1) {          // the outline being drawn (image px -> screen)
+    ctx.beginPath();
+    S.pen.pts.forEach(([py, px], k) => k ? ctx.lineTo(x + px * s, y + py * s) : ctx.moveTo(x + px * s, y + py * s));
+    if (!S.pen.live) ctx.closePath();
+    ctx.lineWidth = 2; ctx.setLineDash(S.pen.remove ? [6, 4] : []);
+    ctx.strokeStyle = S.pen.remove ? "#ff5a5a" : (S.target === "Stele" ? "rgb(0,220,255)" : "rgb(255,220,0)");
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+}
+function toImg(e) {                              // screen -> image pixel (y, x)
+  const r = cv.getBoundingClientRect(), { s, x, y } = S.view;
+  return [(e.clientY - r.top - y) / s, (e.clientX - r.left - x) / s];
+}
+function setTarget(t) {
+  S.target = t;
+  document.querySelectorAll("#target button").forEach(b => b.classList.toggle("on", b.dataset.t === t));
+}
+$("target").onclick = e => { const b = e.target.closest("button"); if (b) setTarget(b.dataset.t); };
+async function applyEdit(pen) {
+  const im = S.images[S.i];
+  S.saving = true; $("editMsg").textContent = "Saving…";
+  try {
+    await api(`/api/projects/${enc(S.project)}/edit`, form({ rel: im.image, target: S.target,
+      points: JSON.stringify(pen.pts.map(([py, px]) => [Math.round(py * 10) / 10, Math.round(px * 10) / 10])),
+      remove: pen.remove }));
+    im.status = "reviewed";
+    document.querySelector(`#imgList li[data-k="${S.i}"] .dot`)?.setAttribute("class", "dot reviewed");
+    await show(S.i);                             // new overlay + numbers
+    $("editMsg").textContent = `${S.target} ${pen.remove ? "removed" : "saved"}.`;
+  } catch (e) { $("editMsg").textContent = ""; showErr(e); }
+  finally { S.saving = false; S.pen = null; draw(); }
 }
 cv.addEventListener("wheel", e => {
   e.preventDefault();
@@ -275,9 +325,31 @@ cv.addEventListener("wheel", e => {
   S.view.x = mx - (mx - S.view.x) * f; S.view.y = my - (my - S.view.y) * f; S.view.s *= f; draw();
 }, { passive: false });
 let drag = null;
-cv.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY }; cv.setPointerCapture(e.pointerId); cv.style.cursor = "grabbing"; });
-cv.addEventListener("pointermove", e => { if (!drag) return; S.view.x += e.clientX - drag.x; S.view.y += e.clientY - drag.y; drag = { x: e.clientX, y: e.clientY }; draw(); });
-cv.addEventListener("pointerup", () => { drag = null; cv.style.cursor = "grab"; });
+cv.addEventListener("pointerdown", e => {
+  cv.setPointerCapture(e.pointerId);
+  const im = S.images[S.i];
+  if (e.shiftKey && im && im.status !== "not measured" && !S.saving) {
+    showErr(""); S.pen = { pts: [toImg(e)], remove: e.ctrlKey || e.metaKey, live: true, last: [e.clientX, e.clientY] };
+    return;
+  }
+  drag = { x: e.clientX, y: e.clientY }; cv.style.cursor = "grabbing";
+});
+cv.addEventListener("pointermove", e => {
+  if (S.pen && S.pen.live) {
+    const [lx, ly] = S.pen.last;
+    if (Math.hypot(e.clientX - lx, e.clientY - ly) >= 3) { S.pen.pts.push(toImg(e)); S.pen.last = [e.clientX, e.clientY]; draw(); }
+    return;
+  }
+  if (!drag) return; S.view.x += e.clientX - drag.x; S.view.y += e.clientY - drag.y; drag = { x: e.clientX, y: e.clientY }; draw();
+});
+cv.addEventListener("pointerup", () => {
+  if (S.pen && S.pen.live) {
+    S.pen.live = false; draw();
+    if (S.pen.pts.length >= 3) applyEdit(S.pen); else S.pen = null;
+    return;
+  }
+  drag = null; cv.style.cursor = "grab";
+});
 addEventListener("resize", draw);
 $("ovOp").oninput = draw;
 $("imgList").onclick = e => { const li = e.target.closest("li"); if (li) show(+li.dataset.k).catch(showErr); };
@@ -286,6 +358,8 @@ addEventListener("keydown", e => {
   if (e.key === "ArrowRight") show(S.i + 1).catch(showErr);
   if (e.key === "ArrowLeft") show(S.i - 1).catch(showErr);
   if (e.key === "o" || e.key === "O") { S.showOv = !S.showOv; draw(); }
+  if (e.key === "3") setTarget("Stele");
+  if (e.key === "6") setTarget("Root");
 });
 
 // ---------------------------------------------------------------- start
