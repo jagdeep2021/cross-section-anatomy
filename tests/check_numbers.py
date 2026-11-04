@@ -202,6 +202,16 @@ def run(out_dir: Path):
     check("base", "root_diameter_px (kept degrees)", float(i.root_diameter_px), 2 * R_ROOT, .01)
     check("base", "root_diameter_eq_px", float(i.root_diameter_eq_px), 2 * R_ROOT, .005)
     check("base", "no lacunae in an intact root", int(i.n_lacunae), 0)
+    docs = []                                    # output documentation: every column described, run info written
+    for wb in sorted((base / "results").glob("*.xlsx")):
+        rd = pd.read_excel(wb, sheet_name="README")
+        rd = rd[rd.column.notna()]
+        docs += [f"{wb.name.split('_20')[0]}:{c}" for c in rd.column[rd["what it is"].fillna("").str.strip() == ""]]
+        check("docs", f"{wb.name.split('_20')[0]}: run_info sheet present",
+              "run_info" in pd.ExcelFile(wb).sheet_names, True)
+    check("docs", "every output column has a description", ", ".join(docs) or "none missing", "none missing")
+    check("docs", "root_diameter_eq_um written", "root_diameter_eq_um" in r["img"].columns, True)
+    check("docs", "methods text written", any((base / "results").glob("methods_*.txt")), True)
 
     def edit(case, fn, expect, note=""):
         """Copy the base project, edit image S with fn(npz, cells, region, mx), summarise, compare."""

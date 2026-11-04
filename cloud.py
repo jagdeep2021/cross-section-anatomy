@@ -85,11 +85,22 @@ def propose(path, diameter=None):
 WEB_PKGS = [p for p in PKGS if p.split("==")[0] not in ("torch", "cellpose")] + \
     ([l.strip() for l in (HERE / "web/requirements-web.txt").read_text().splitlines()
       if l.strip() and not l.startswith("-r")] if modal.is_local() else [])
+
+
+def _rooh_version():
+    """The commit being deployed, so the web's result tables say which code made them (no git on the server)."""
+    import os
+    if not modal.is_local():
+        return os.environ.get("ROOH_VERSION", "unknown")
+    import summarise
+    return summarise.rooh_version()
+
+
 web_data = modal.Volume.from_name("csa-web-data", create_if_missing=True)
 web_image = (modal.Image.debian_slim(python_version="3.13")
              .apt_install("libgl1", "libglib2.0-0")
              .pip_install(*WEB_PKGS)
-             .env({"CSA_DATA": "/data"})
+             .env({"CSA_DATA": "/data", "ROOH_VERSION": _rooh_version()})
              .add_local_python_source("pipeline", "run_batch", "summarise", "pattern_plots")
              .add_local_dir(HERE / "web", "/root/web")
              .add_local_file(HERE / "icon.png", "/root/icon.png"))

@@ -11,7 +11,9 @@ cross_section_anatomy/
 ├── run_batch.py    folder of images -> anatomy/masks/*.npz + anatomy/qc/*.png (resumable)
 ├── review.py       napari app: fix cells / stele / metaxylem / root; exclude damaged sectors
 ├── summarise.py    masks -> results/{cortex_pattern, all_cells, anatomy_summary}_YYYY-MM-DD.xlsx
-│                   + results/figures/ (cortex pattern per species, per image)
+│                   + results/methods_YYYY-MM-DD.txt + results/figures/ (cortex pattern per species, per image)
+│                   anatomy_summary opens on START_HERE (files, unit = plant, what to check, where each answer is);
+│                   every workbook: README (each column: topic, unit, meaning) + run_info (Rooh commit, thresholds)
 ├── pattern_plots.py  splines, profile features, the figures (also the live plot in review.py)
 ├── Install (…), Open app (…)   double-click launchers (Mac .command, Windows .bat)
 └── requirements.txt

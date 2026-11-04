@@ -69,6 +69,10 @@ COLUMNS = {
     "cortex_width_um": "mean root radius minus stele radius over the kept degrees (µm)",
     "n_cortical_layers": "cortical cells crossed by a ray from the stele out, median over rays every 5 degrees in the "
                          "kept angles (_min / _max: the range: one side can carry an extra layer)",
+    "n_cortical_layers_min": "fewest cortical layers on any 5-degree ray (kept angles)",
+    "n_cortical_layers_max": "most cortical layers on any 5-degree ray; a wide min-max range = a wrong stele outline "
+                             "or an extra layer on one side: check the image",
+    "n_low_coverage": f"images of this plant with fewer than {P.MIN_KEPT_DEG} degrees kept",
     "n_cortex_cells": "cortical cells counted in the kept angles", "n_cortex_cells_est": "scaled to 360 degrees (estimate)",
     "mean_cortex_cell_area_um2": "mean cortical cell area, kept cells (µm²)",
     "median_cortex_cell_area_um2": "median cortical cell area, kept cells (µm²): the reference for rel",
@@ -117,13 +121,216 @@ COLUMNS = {
                           "missed. Review hint: draw the cell",
     "lacuna_area_um2": "total lacuna area (µm²)", "aerenchyma_share": "lacuna area / cortex area kept",
     "lacuna_r_norm_mean": "area-weighted mean radial position of lacuna pixels (0 stele edge, 1 root edge)",
-    "lacuna": "lacuna number in the image", "angle_deg_lacuna": "",
+    "lacuna": "lacuna number in the image",
     "r_norm_inner": "innermost radial position of the lacuna", "r_norm_outer": "outermost radial position",
     "cortex_px": "cortex pixels in this bin (kept angles)", "lacuna_px": "lacuna pixels in this bin",
     "lacuna_share": "lacuna pixels / cortex pixels in this bin",
     "axis": "rel (the curve of relative size)", "fitted": "the curve's value at x",
 }
 FEATURE_SETS = ("_rel", "_abs", "_rel_cortex")
+
+
+# Topics: the README's topic column and the column order of per_image / per_plant (first rule that matches wins).
+TOPICS = (
+    ("1 identity", lambda c, g: c in ("image_file", "plant", "tech_rep", "status", "um_per_px", "n_images",
+                                      "n_reviewed", "epidermis", "label", "lacuna", "basis", "scope", "area_unit",
+                                      "bin", "axis") or c in g or c.startswith("group_")),
+    ("2 check first", lambda c, g: c in ("angle_kept_deg", "excluded_sectors", "low_coverage", "n_low_coverage",
+                                         "quarters_used", "n_quarters", "kept_deg", "epidermis_deg",
+                                         "min_cells_in_bin", "few_cells", "n_gaps_missed_cell",
+                                         "n_giant_cortex_cells", "sector", "n_rays", "ring")
+                                or c.startswith("n_cortical_layers_m")),
+    ("3 whole root", lambda c, g: c.startswith("root_")),
+    ("4 stele + metaxylem", lambda c, g: c.startswith(("stele_", "mx_"))),
+    ("5 cortex", lambda c, g: "cortex" in c and "lacuna" not in c and not c.endswith("_rel_cortex")
+                              or c.startswith(("n_cortical_layers", "n_air_spaces", "air_space"))),
+    ("7 aerenchyma", lambda c, g: "lacuna" in c or "aerenchyma" in c),
+    ("6 cortex pattern", lambda c, g: c.startswith(("peak_", "rise_", "decay_", "outer_rise", "epidermis_rel"))
+                                      or c in ("rel", "x_position", "n_cells", "fitted", "radial_bin")
+                                      or c.startswith("median_area")),
+    ("8 cell position + size", lambda c, g: True),
+)
+
+
+def topic_of(col, groups=()):
+    return next(t for t, rule in TOPICS if rule(col, groups))
+
+
+def unit_of(col):
+    c = col
+    if c == "um_per_px":
+        return "µm per pixel"
+    if c.endswith(("_abs",)) or "_abs" in c:
+        return "area_unit per unit position" if "slope" in c else ("0-1 position" if "pos" in c else "area_unit")
+    if c.endswith("_um2"):
+        return "µm²"
+    if c.endswith("_um"):
+        return "µm"
+    if c.endswith("_px"):
+        return "pixels²" if "area" in c else "pixels"
+    if c.endswith("_deg") or c == "angle_deg":
+        return "degrees"
+    if c == "angle_rad":
+        return "radians"
+    if c in ("low_coverage", "few_cells"):
+        return "TRUE / FALSE"
+    if c in ("x", "y"):
+        return "pixels"
+    if c == "file_rel":
+        return "0-1 (file position, stele side 0)"
+    if c == "quarter":
+        return "1-4"
+    if "pos" in c or c.startswith(("r_norm", "lacuna_r_norm")) or c == "x_position":
+        return "0-1 position (0 stele edge, 1 root edge)"
+    if "slope" in c:
+        return "relative size per unit position"
+    if c in ("rel", "fitted", "epidermis_rel") or c.startswith(("peak_height", "outer_rise")):
+        return "x the image's median cell (cortex + epidermis)"
+    if "share" in c:
+        return "fraction (0-1)"
+    if c.startswith(("n_", "min_cells")) or c.endswith(("_n", "_est")) or c in ("tech_rep", "file", "bin",
+                                                                                 "radial_bin", "lacuna", "label", "ring"):
+        return "count / number"
+    return "text"
+
+
+def order_cols(df, groups=()):
+    """per_image / per_plant: columns grouped by topic (identity, checks, root, stele, cortex, pattern, aerenchyma);
+    within a topic µm before pixels."""
+    cols = list(df.columns)
+    return df[sorted(cols, key=lambda c: (topic_of(c, groups), c.endswith("_px") and c != "um_per_px",
+                                          cols.index(c)))]
+
+
+def rooh_version():
+    """Commit of the Rooh code that made the numbers ('+ local changes' when the checkout is edited)."""
+    import os
+    import subprocess
+    if os.environ.get("ROOH_VERSION"):
+        return os.environ["ROOH_VERSION"]
+    here = Path(__file__).resolve().parent
+    try:
+        h = subprocess.run(["git", "-C", str(here), "log", "-1", "--format=%h %cs"], capture_output=True,
+                           text=True, timeout=10).stdout.strip()
+        dirty = subprocess.run(["git", "-C", str(here), "status", "--porcelain", "--untracked-files=no"],
+                               capture_output=True, text=True, timeout=10).stdout.strip()
+        return (h + (" + local changes" if dirty else "")) if h else "unknown"
+    except Exception:
+        return "unknown"
+
+
+def run_info(anatomy_dir, settings):
+    """Provenance: written into every workbook (sheet run_info) so a table can always be traced to its rules."""
+    return pd.DataFrame([
+        ("made", dt.datetime.now().isoformat(timespec="minutes"), "date and time these tables were made"),
+        ("rooh_version", rooh_version(), "Rooh code commit (github.com/jagdeep2021/cross-section-anatomy)"),
+        ("anatomy_folder", str(anatomy_dir), "masks + samples.xlsx these tables were made from"),
+        ("cell_model", "Cellpose cpsam" + (f" (custom: {settings['model_path']})" if settings.get("model_path")
+                                           else ""), "proposes the cells; corrected by hand where status = reviewed"),
+        ("cell_diameter", settings.get("diameter") or "auto", "Cellpose diameter setting (pixels)"),
+        ("N_BINS", N_BINS, "radial bins across the tissue outside the endodermis"),
+        ("MIN_KEPT_DEG", P.MIN_KEPT_DEG, "below this many degrees kept the image is flagged low_coverage"),
+        ("MIN_QUARTER_DEG", P.MIN_QUARTER_DEG, "a quarter needs this many degrees kept to give quarter features"),
+        ("MIN_CELLS_PER_BIN", P.MIN_CELLS_PER_BIN, "a bin with fewer cells is flagged few_cells"),
+        ("MIN_EPI_DEG", P.MIN_EPI_DEG, "epidermis_deg below this: compare _rel with _rel_cortex"),
+        ("FILE_STEP_DEG", P.FILE_STEP_DEG, "ray spacing (degrees) for cell file numbers"),
+        ("LACUNA_MIN_CELLS", P.LACUNA_MIN_CELLS, "a lacuna is at least this many median cortical cells"),
+        ("GAP_MIN_CELLS", P.GAP_MIN_CELLS, "gaps from this size up to LACUNA_MIN_CELLS = probably a missed cell"),
+        ("MIN_PTS", PP.MIN_PTS, "fewest bins with cells for a fitted curve"),
+    ], columns=["setting", "value", "what it is"])
+
+
+def start_here(today, n_img, n_rev, n_plant, no_scale):
+    """The first sheet of anatomy_summary: what the files are, the unit, what to check, where each answer is."""
+    rows = [
+        ("FILES", f"anatomy_summary_{today}.xlsx", "root, stele, metaxylem, cortex, aerenchyma: per_plant, per_image, "
+                                                   "per_cell, lacunae"),
+        ("", f"cortex_pattern_{today}.xlsx", "cell size from the stele out: profiles, curve features, aerenchyma "
+                                             "by position, fitted curves"),
+        ("", f"all_cells_{today}.xlsx", "every segmented object with its tissue, position and size (raw material)"),
+        ("", f"methods_{today}.txt", "the Methods paragraph for these numbers, with the thresholds used"),
+        ("", "figures/", "cortex pattern per group"),
+        ("", "README sheet (every workbook)", "every column: topic, unit, meaning. run_info sheet: code version "
+                                              "and thresholds"),
+        ("THIS RUN", f"{n_img} images, {n_plant} plants", f"{n_rev} of {n_img} images checked by hand (status = "
+                                                          "reviewed); the rest are computer outlines only"),
+        ("UNIT", "the plant", "images of one plant are technical replicates: analyse plant means (per_plant) or "
+                              "use plant as a random effect. Never use cells or images as n."),
+        ("CHECK FIRST", "status", "auto rows have not been checked by a person"),
+        ("", "um_per_px", (f"{no_scale} image(s) have no scale: their sizes stay in pixels" if no_scale else
+                           "every image has a scale")),
+        ("", "low_coverage", f"TRUE = fewer than {P.MIN_KEPT_DEG} degrees kept: cortex numbers rest on few cells"),
+        ("", "n_cortical_layers_min / _max", "a wide range = stele outline wrong or one side thicker: look"),
+        ("", "epidermis_deg", f"below {P.MIN_EPI_DEG}: Cellpose missed most epidermis; compare _rel with "
+                              "_rel_cortex"),
+        ("", "n_gaps_missed_cell / n_giant_cortex_cells", "likely segmentation misses: review those images"),
+        ("", "min_cells_in_bin, few_cells", f"bins under {P.MIN_CELLS_PER_BIN} cells are noisy"),
+        ("WHERE IS", "root size", "per_image: root_area_um2, root_diameter_um (kept angles), root_diameter_eq_um"),
+        ("", "stele + metaxylem", "per_image: stele_area_um2, stele_share_est, mx_n, mx_mean_area_um2 (whole "
+                                  "section, never by sector)"),
+        ("", "cortical cell size", "per_image: median_cortex_cell_area_um2 (kept angles)"),
+        ("", "cortical cell file number (CCFN)", "per_image: n_cortical_layers"),
+        ("", "cortex width / area", "per_image: cortex_width_um, cortex_area_est_um2 (_est = scaled to 360 deg)"),
+        ("", "cell size pattern (shape)", "cortex_pattern > profile_features, basis = position, scope = section: "
+                                          "peak_pos_rel, peak_height_rel, rise / decay slopes, outer_rise"),
+        ("", "pattern by cell file", "the same with basis = file"),
+        ("", "quarters", "scope = Q1..Q4, quarter_mean, quarter_sd (spread between quarters)"),
+        ("", "aerenchyma amount", "per_image: aerenchyma_share, n_lacunae, lacuna_area_um2"),
+        ("", "where aerenchyma forms", "cortex_pattern > aerenchyma_profile (share per radial bin); "
+                                       "per_image: lacuna_r_norm_mean; anatomy_summary > lacunae (each one)"),
+        ("", "curves for fPCA", "cortex_pattern > spline_curves"),
+        ("", "your own analysis", "all_cells (filter sector = kept for cortex numbers)"),
+    ]
+    return pd.DataFrame(rows, columns=["", "item", "what / where"])
+
+
+def methods_text(per_image, n_plant, today):
+    n, rev = len(per_image), int((per_image.status == "reviewed").sum())
+    return f"""Methods: root cross-section anatomy (Rooh {rooh_version()}; tables made {today})
+
+Text to adapt for a Methods section. The thresholds are this run's settings (sheet run_info); edit the species-specific wording.
+
+Segmentation. Cells were segmented with Cellpose (cpsam model; Stringer et al. 2021, Pachitariu et al. 2025). The
+root outline was derived from the cell walls and cells, the stele as the cluster of small cells near the centre, and
+metaxylem vessels as large round lumens in the stele (area > 5 x the median stele cell, solidity > 0.85). All
+outlines were proposed automatically and checked and corrected by hand in Rooh's editor ({rev} of {n} images in
+this run; the rest are automatic only). Each pixel belongs to one object. The stele is everything inside the outer edge of the endodermis; cells
+touching a 6-pixel band inside the root outline were tagged epidermis; the cells in between are cortex (including
+the hypodermis). Objects smaller than 25% of their neighbours' median area with at most 5 neighbours were classed as
+intercellular air spaces, not cells.
+
+Damaged tissue. Torn, folded, oblique, out-of-focus or debris-covered parts of the cortex were excluded by hand as
+arcs of angle around the stele centre, each with its reason; cells were kept or excluded by their centre. Biology
+(aerenchyma, collapsed cells) was never a reason to exclude. Stele and metaxylem traits use the whole section.
+Cortex counts and areas from the kept angles are also given scaled to 360 degrees (_est). Images with fewer than
+{P.MIN_KEPT_DEG} degrees kept were flagged.
+
+Scale. Pixel sizes (micrometres per pixel) were entered per image from the microscope calibration; areas are to the
+mid-wall.
+
+Cortical cell file number. Rays from the stele centre every 5 degrees (kept angles only) counted the cortical cells
+crossed (a cell counts when the ray stays in it for at least 2 pixels); CCFN is the median over rays. Every cell
+outside the endodermis was also given a file number (1 = next to the stele) as the median of its numbers along
+rays every {P.FILE_STEP_DEG} degrees.
+
+Radial pattern of cell size. Each cell's radial position was normalised along its own direction from the stele
+centre: 0 at the stele edge, 1 at the root edge (r_norm). All cells outside the endodermis (cortex and epidermis,
+treated as one tissue) in the kept angles were binned into {N_BINS} equal r_norm bins; cell area per bin was the
+median, divided by the image's median cell area (relative size). A smoothing spline with the smoothing chosen by
+generalised cross-validation (scipy make_smoothing_spline), weighted by cells per bin, was fitted through the bin
+medians (at least {PP.MIN_PTS} bins with cells), and the peak height and position, the rise slope from the stele to
+the peak, the decay slope over 20% of the range past the peak, and the outer rise were read off the curve. The same
+was done by cell file instead of position, without the tagged epidermis (a check), and for each quarter around the
+stele centre with at least {P.MIN_QUARTER_DEG} degrees kept (quarter mean and SD). Bins with fewer than
+{P.MIN_CELLS_PER_BIN} cells were flagged.
+
+Aerenchyma. Lacunae were non-cell gaps in the cortex of at least {P.LACUNA_MIN_CELLS:g} x the median cortical cell
+area that touched neither the root edge nor the stele, with their centre in the kept angles. Aerenchyma was
+expressed as lacuna area / cortex area kept, and by radial position as lacuna pixels / cortex pixels per r_norm bin.
+
+Statistics. The plant was the experimental unit: per-cell values were summarised per image (medians), images
+averaged per plant ({n} images from {n_plant} plants here); cells were never pooled across images.
+"""
 
 
 def make_samples(files: list[Path]) -> pd.DataFrame:
@@ -162,7 +369,7 @@ def describe(col):
         for unit in ("_um2", "_um"):
             if base + unit in COLUMNS:
                 return COLUMNS[base + unit].split("(µm")[0].strip() + " (pixels)"
-        return "pixels"
+        return ""
     for sfx in FEATURE_SETS:                           # profile features: same meaning on another scale
         if col.endswith(sfx) and col[:-len(sfx)] + "_rel" in COLUMNS:
             return COLUMNS[col[:-len(sfx)] + "_rel"].split(";")[0] + f" ({sfx[1:]})"
@@ -175,7 +382,7 @@ def to_um(d: dict, s: float) -> dict:
     for k, v in d.items():
         if k.endswith("_px") and "area" in k:
             out[k[:-3] + "_um2"] = v * s * s
-        elif k.endswith(("width_px", "diameter_px")):
+        elif k.endswith("_px") and ("width" in k or "diameter" in k):
             out[k[:-3] + "_um"] = v * s
     return out
 
@@ -257,7 +464,7 @@ def main(anatomy_dir: Path, image_figures: bool = False):
                 if scope != "section":
                     qfeat.append(f)
                 sp = PP.spline(allp.x, allp.rel, w_all, at=grid)
-                curve_rows += [{**base, "basis": basis, "scope": scope, "axis": "rel", "x": xv, "fitted": yv}
+                curve_rows += [{**base, "basis": basis, "scope": scope, "axis": "rel", "x_position": xv, "fitted": yv}
                                for xv, yv in zip(grid, sp[1] if sp is not None else [np.nan] * len(grid))]
             if qfeat:
                 q = pd.DataFrame(qfeat)
@@ -365,7 +572,7 @@ def main(anatomy_dir: Path, image_figures: bool = False):
             "aerenchyma_profile": (aerenchyma_profile, f"one row per image x r_norm bin ({N_BINS} bins, 1 = next to the "
                                    "stele): lacuna pixels / cortex pixels in the kept angles. Tests where aerenchyma "
                                    "forms; plant = unit"),
-            "spline_curves": (spline_curves, "the fitted relative-size curves on 0, 0.05 ... 1 (long format; NaN outside "
+            "spline_curves": (spline_curves, "the fitted relative-size curves at x_position 0, 0.05 ... 1 (long format; NaN outside "
                               "the data): the input for fPCA"),
             "per_plant_profile": (per_plant_profile, "plant x bin: mean of the image medians (display; analyse "
                                   "per_image_profile with plant as the unit)")},
@@ -384,15 +591,27 @@ def main(anatomy_dir: Path, image_figures: bool = False):
             "lacunae": (lacunae_t, "one row per aerenchyma lacuna (centre in the kept angles): area, angle, quarter, "
                         "radial position (mean, inner, outer)")},
     }
+    info = run_info(anatomy_dir, settings)
+    n_plant = per_image.groupby(keys, dropna=False).ngroups
     for fname, tabs in files_out.items():
-        tabs = {name: (px_last(df), note) for name, (df, note) in tabs.items()}
-        readme = pd.DataFrame([(k, "", n) for k, (_, n) in tabs.items()], columns=["sheet", "column", "what it is"])
-        cols = pd.DataFrame([(name, c, describe(c)) for name, (df, _) in tabs.items() for c in df.columns],
-                            columns=["sheet", "column", "what it is"])
+        tabs = {name: (order_cols(df, groups) if name in ("per_image", "per_plant") else px_last(df), note)
+                for name, (df, note) in tabs.items()}
+        readme = pd.DataFrame([(k, "", "", "", n) for k, (_, n) in tabs.items()],
+                              columns=["sheet", "column", "topic", "unit", "what it is"])
+        cols = pd.DataFrame([(name, c, topic_of(c, groups)[2:], unit_of(c), describe(c) or
+                              ("grouping column from samples.xlsx" if c in groups else ""))
+                             for name, (df, _) in tabs.items() for c in df.columns],
+                            columns=["sheet", "column", "topic", "unit", "what it is"])
         with pd.ExcelWriter(out_dir / fname) as w:
+            if fname.startswith("anatomy_summary"):
+                start_here(today, len(per_image), int((per_image.status == "reviewed").sum()), n_plant,
+                           int(per_image.um_per_px.isna().sum())).to_excel(w, sheet_name="START_HERE", index=False)
             pd.concat([readme, cols], ignore_index=True).to_excel(w, sheet_name="README", index=False)
             for name, (df, _) in tabs.items():
                 df.to_excel(w, sheet_name=name, index=False)
+            info.to_excel(w, sheet_name="run_info", index=False)
+    paras = methods_text(per_image, n_plant, today).split("\n\n")         # one line per paragraph: pastes into Word
+    (out_dir / f"methods_{today}.txt").write_text("\n\n".join(" ".join(x.split("\n")) for x in paras) + "\n")
     if len(per_image_profile) and groups:
         sp, gt = groups[0], groups[-1]            # e.g. species, genotype
         (out_dir / "figures").mkdir(exist_ok=True)

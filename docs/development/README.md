@@ -145,3 +145,14 @@ Rooh started on 2026-10-27 as `cross_section_anatomy`, was briefly renamed JadNa
   - CCFN stays cortex only.
 - **Consequence:** if the outer cells are the largest, the peak sits at the edge and decay / outer rise come out NaN. That is rare in maize, and it is the honest answer.
 - **Checks:** 142 of 142 pass. Bin 10 and file 9 equal the epidermis, and a big epidermis moves the main peak to the edge but not the `_rel_cortex` peak.
+
+## 2026-11-03 (evening) · Output files document themselves
+- **Why (Jagdeep):** correct segmentation is wasted if the output is messy. Someone opening the results months later, without us, must be able to tell what each number is, how it was made, and what to check.
+- **Decision:**
+  - `anatomy_summary` opens on **START_HERE**: the files, this run's counts (images, plants, reviewed), the unit of analysis (the plant), the flags to check first, and which sheet and column answers which question.
+  - Every workbook's **README** lists every column with its topic, unit and meaning.
+  - Every workbook carries **run_info**: when it was made, the Rooh commit (marked "+ local changes" if the checkout was edited; the web gets it stamped at deploy), the Cellpose model and diameter, and every threshold.
+  - `per_image` and `per_plant` columns run by topic: identity → check first → whole root → stele + metaxylem → cortex → cortex pattern → aerenchyma, µm before pixels inside each topic.
+  - **methods_DATE.txt**: a Methods draft written from the same constants the code uses, one line per paragraph so it pastes into Word.
+- **Fixed on the way:** `root_diameter_eq_um` was never written (the µm conversion missed it). `n_cortical_layers_min/_max` and `n_low_coverage` had no description. In `spline_curves` the 0-1 axis is now `x_position` (it was `x`, which in all_cells means pixels from the left).
+- **Enforced:** `tests/check_numbers.py` fails if any output column has no description, if run_info or the methods file is missing, or if `root_diameter_eq_um` is missing. 148 of 148 pass.
