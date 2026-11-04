@@ -19,6 +19,9 @@ cross_section_anatomy/
 └── requirements.txt
 ```
 
+**Docs:** `docs/traits.md` = how every number is made now (one entry per trait). `docs/development/README.md` =
+why: the dated decision log. `CLAUDE.md` = rules for anyone editing (what goes where, before / after a session).
+
 ## Run
 
 ```bash

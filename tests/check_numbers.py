@@ -243,6 +243,13 @@ def run(out_dir: Path):
     check("docs", "every output column has a description", ", ".join(docs) or "none missing", "none missing")
     check("docs", "root_diameter_eq_um written", "root_diameter_eq_um" in r["img"].columns, True)
     check("docs", "methods text written", any((base / "results").glob("methods_*.txt")), True)
+    import re
+    tr = (HERE / "docs/traits.md").read_text()
+    miss = [c for c in r["img"].reset_index().columns
+            if not any(f"`{b}`" in tr for b in {re.sub(r"_(um2|um|px)$", "", c),
+                                                re.sub(r"_(est)$", "", re.sub(r"_(um2|um|px)$", "", c))})
+            and c not in ("image_file", "plant", "tech_rep", "status", "um_per_px", "epidermis")]
+    check("docs", "every per_image column is in docs/traits.md", ", ".join(miss) or "none missing", "none missing")
 
     def edit(case, fn, expect, note=""):
         """Copy the base project, edit image S with fn(npz, cells, region, mx), summarise, compare."""
