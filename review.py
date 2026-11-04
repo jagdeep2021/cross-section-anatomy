@@ -543,6 +543,7 @@ class Reviewer:
         self.cells = lab(cells, "cells", {None: "yellow", 0: "transparent"}, 0.9)
         self.cells.contour = 1
         self.air = lab(np.zeros_like(cells), "air spaces", {None: "magenta", 0: "transparent"}, 0.8)
+        self.lac = lab(np.zeros_like(cells), "lacunae", {None: "orange", 0: "transparent"}, 0.5)
         self.sect = v.add_shapes(name="excluded sectors", face_color="transparent")
         self.slab = v.add_points(np.empty((0, 2)), name="sector reasons", size=0)
         self.outline = v.add_shapes(name="outline", edge_color="white", edge_width=1.5, face_color="transparent")
@@ -612,6 +613,9 @@ class Reviewer:
         self.props = props
         st = P.sector_traits(cells, region, props, centre, self.arcs)
         self.air.data = np.isin(cells, props.label[props.tissue == "air_space"].values).astype(np.uint8)
+        lac, _, n_gaps, lac_mask = P.lacunae(cells, region, self.mx.data, props, centre, self.arcs, mask=True)
+        self.lac.data = (lac_mask > 0).astype(np.uint8)
+        at = P.lacuna_traits(lac, n_gaps, st["cortex_area_kept_px"])
         cy, cx = centre
         r_st, r_rt = P.radial_profile(region, centre)
         rad = lambda prof, t: prof[np.mod(np.round(t), 360).astype(int)]
@@ -648,7 +652,8 @@ class Reviewer:
         self.info.value = (f"{self.i + 1}/{len(self.files)}  ·  {self.status}\n"
                            f"Kept {st['angle_kept_deg']:.0f}°{flag}  ·  cortex cells {st['n_cortex_cells']}  ·  layers "
                            f"{'-' if pd.isna(lay) else f'{lay:.0f}'} ({st['n_cortical_layers_min']}-{st['n_cortical_layers_max']})\n"
-                           f"Metaxylem {tr['mx_n']}  ·  air spaces {st['n_air_spaces']}")
+                           f"Metaxylem {tr['mx_n']}  ·  air spaces {st['n_air_spaces']}  ·  lacunae {at['n_lacunae']}"
+                           + (f" ({100 * at['aerenchyma_share']:.1f}% of cortex)" if at["n_lacunae"] else ""))
 
     def draw_profile(self):
         """Live cortex pattern (same as the result figures): kept cortical cells, median per radial bin,
