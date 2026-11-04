@@ -10,6 +10,7 @@ Uses <anatomy_dir>/samples.xlsx (one row per image; made by run_batch.py, or her
   um_per_px  microns per pixel, from the microscope/camera: always given by the user (scale bars are not read).
              Fill it any time after measuring: the scale is used only here, never for outlining.
   include    "no" drops the image
+  notes      any column whose name starts with note / check / comment / remark: free text, copied to per_image
   epidermis  yes = intact, no = lost in sectioning (the outermost layer is then outer cortex, tagged epidermis by
              position); empty = not checked. The pattern counts every cell outside the endodermis either way.
 Writes <anatomy_dir>/../results/anatomy_summary_YYYY-MM-DD.xlsx
@@ -29,6 +30,8 @@ import pattern_plots as PP
 import pipeline as P
 
 FIXED = ["image_file", "plant", "um_per_px", "include", "epidermis"]
+NOTE_COLS = ("note", "check", "comment", "remark")   # samples.xlsx columns starting so = free text: copied to per_image,
+                                                    # never a grouping column
 N_BINS = 10   # radial bins across the cortex: 1 = next to the stele ... 10 = next to the epidermis; epidermis its own point
 # what every column means: written into each workbook's README sheet. Columns ending _px are the same
 # measure in pixels (kept at the end of each sheet, for images without a scale). Areas run to mid-wall.
@@ -44,6 +47,8 @@ COLUMNS = {
     "n_reviewed": "of those, images checked by hand",
     "angle_kept_deg": "degrees of the section measured: 360 minus the excluded sectors (damaged tissue taken out by hand)",
     "excluded_sectors": "the excluded arcs, 'start-end reason' in degrees counter-clockwise from the image's right",
+    "stele_found": "FALSE = no stele outlined (root tip, or stele cut off by the frame): stele, metaxylem, cortex "
+                   "and aerenchyma columns are blank for this image (root size still measured)",
     "low_coverage": f"TRUE when fewer than {P.MIN_KEPT_DEG} degrees are kept: cortex numbers rest on few cells",
     "label": "cell number inside the image's mask",
     "tissue": "cortex | stele | epidermis | air_space | metaxylem | unassigned; '..._excluded' = centre in an excluded "
@@ -135,7 +140,7 @@ TOPICS = (
     ("1 identity", lambda c, g: c in ("image_file", "plant", "tech_rep", "status", "um_per_px", "n_images",
                                       "n_reviewed", "epidermis", "label", "lacuna", "basis", "scope", "area_unit",
                                       "bin", "axis") or c in g or c.startswith("group_")),
-    ("2 check first", lambda c, g: c in ("angle_kept_deg", "excluded_sectors", "low_coverage", "n_low_coverage",
+    ("2 check first", lambda c, g: c in ("stele_found", "angle_kept_deg", "excluded_sectors", "low_coverage", "n_low_coverage",
                                          "quarters_used", "n_quarters", "kept_deg", "epidermis_deg",
                                          "min_cells_in_bin", "few_cells", "n_gaps_missed_cell",
                                          "n_giant_cortex_cells", "sector", "n_rays", "ring")
@@ -172,7 +177,7 @@ def unit_of(col):
         return "degrees"
     if c == "angle_rad":
         return "radians"
-    if c in ("low_coverage", "few_cells"):
+    if c in ("low_coverage", "few_cells", "stele_found"):
         return "TRUE / FALSE"
     if c in ("x", "y"):
         return "pixels"
@@ -259,6 +264,7 @@ def start_here(today, n_img, n_rev, n_plant, no_scale):
         ("CHECK FIRST", "status", "auto rows have not been checked by a person"),
         ("", "um_per_px", (f"{no_scale} image(s) have no scale: their sizes stay in pixels" if no_scale else
                            "every image has a scale")),
+        ("", "stele_found", "FALSE = no stele (root tip or cut off): stele / cortex / aerenchyma columns blank"),
         ("", "low_coverage", f"TRUE = fewer than {P.MIN_KEPT_DEG} degrees kept: cortex numbers rest on few cells"),
         ("", "n_cortical_layers_min / _max", "a wide range = stele outline wrong or one side thicker: look"),
         ("", "epidermis_deg", f"below {P.MIN_EPI_DEG}: Cellpose missed most epidermis; compare _rel with "
@@ -398,7 +404,8 @@ def main(anatomy_dir: Path, image_figures: bool = False):
     sfile = write_samples(anatomy_dir)
     samples = pd.read_excel(sfile, dtype={"image_file": str, "plant": str})
     samples["include"] = samples["include"].fillna("yes").astype(str).str.lower()
-    groups = [c for c in samples.columns if c not in FIXED]
+    notes = [c for c in samples.columns if str(c).lower().startswith(NOTE_COLS)]
+    groups = [c for c in samples.columns if c not in FIXED and c not in notes]
     samples = samples.set_index("image_file")
     tech_rep = samples.groupby(["plant", *groups], dropna=False).cumcount() + 1   # image number within a plant
 
@@ -480,8 +487,12 @@ def main(anatomy_dir: Path, image_figures: bool = False):
               "lacuna_r_norm_mean": float(np.average(lac.r_norm, weights=lac.area_px)) if len(lac) else np.nan}
         lac_rows.append(lac.assign(**base, area_um2=lac.area_px * s * s))
         aer_rows.append(aprof.assign(**base))
+        if not st["stele_found"]:                       # no stele: whole-section stele traits blank too, not 0
+            whole.update({k: np.nan for k in P.NEEDS_STELE if k in whole})
+            lt.update({k: np.nan for k in P.NEEDS_STELE if k in lt})
         img_rows.append({**meta, "tech_rep": tech, "status": status, "um_per_px": s,
                          "epidermis": samples.at[rel, "epidermis"] if "epidermis" in samples.columns else None,
+                         **{n: samples.at[rel, n] for n in notes},
                          **whole, **st, **lt,
                          "epidermis_rel": e_all.area_px.median() / ref if len(e_all) else np.nan,
                          "min_cells_in_bin": int(prof.n_cells.min()),
@@ -594,12 +605,13 @@ def main(anatomy_dir: Path, image_figures: bool = False):
     info = run_info(anatomy_dir, settings)
     n_plant = per_image.groupby(keys, dropna=False).ngroups
     for fname, tabs in files_out.items():
-        tabs = {name: (order_cols(df, groups) if name in ("per_image", "per_plant") else px_last(df), note)
+        tabs = {name: (order_cols(df, [*groups, *notes]) if name in ("per_image", "per_plant") else px_last(df), note)
                 for name, (df, note) in tabs.items()}
         readme = pd.DataFrame([(k, "", "", "", n) for k, (_, n) in tabs.items()],
                               columns=["sheet", "column", "topic", "unit", "what it is"])
-        cols = pd.DataFrame([(name, c, topic_of(c, groups)[2:], unit_of(c), describe(c) or
-                              ("grouping column from samples.xlsx" if c in groups else ""))
+        cols = pd.DataFrame([(name, c, topic_of(c, [*groups, *notes])[2:], unit_of(c), describe(c) or
+                              ("grouping column from samples.xlsx" if c in groups else
+                               "your note from samples.xlsx" if c in notes else ""))
                              for name, (df, _) in tabs.items() for c in df.columns],
                             columns=["sheet", "column", "topic", "unit", "what it is"])
         with pd.ExcelWriter(out_dir / fname) as w:

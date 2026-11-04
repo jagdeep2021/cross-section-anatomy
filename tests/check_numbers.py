@@ -97,7 +97,7 @@ MED_CORTEX = float(np.median(np.repeat(CELL_AREA, SECT)))
 EPI_AREA0 = np.pi * (475 ** 2 - 455 ** 2) / 72
 MED_TISSUE = float(np.median(np.r_[np.repeat(CELL_AREA, SECT), np.repeat(EPI_AREA0, 72)]))   # the reference for rel
 EPI_AREA = ann_area(EDGES[-1], R_EPI, 72)
-TOL = {"root_area_px": .005, "stele_area_px": .01, "cortex_area_px": .005, "cortex_width_px": .01,
+TOL = {"root_area_px": .005, "root_diameter_eq_px": .005, "stele_area_px": .01, "cortex_area_px": .005, "cortex_width_px": .01,
        "mean_cortex_cell_area_px": .02, "mx_mean_area_px": .04, "cortex_area_kept_px": .005,
        "cortex_area_est_px": .005, "root_area_est_px": .005, "stele_share_est": .01, "epidermis_rel": .03,
        "lacuna_area_px": .03, "lacuna_r_norm_mean": .03}
@@ -368,6 +368,15 @@ def run(out_dir: Path):
         c[np.isin(c, [lab(c, 1, d) for d in range(185, 245, 10)] + [lab(c, 2, d) for d in range(185, 245, 10)])] = 0
         P.save_edit(npz, cells=c)
     edit("11d_tear_at_stele", e11d, {"n_lacunae": 0})
+
+    # 11e: no stele (a root tip, or the stele cut off by the frame): stele / cortex traits blank, never 0
+    def e11e(npz, c, rg, m):
+        rg[rg == 2] = 1
+        m[:] = 0
+        P.save_edit(npz, region=rg, mx=m)
+    edit("11e_no_stele", e11e, {"stele_found": 0, "n_cortical_layers": np.nan, "stele_area_um2": np.nan,
+                                "n_cortex_cells": np.nan, "mx_n": np.nan, "n_lacunae": np.nan,
+                                "root_diameter_eq_px": 2 * R_ROOT}, "root size still measured")
 
     # 11c: big epidermal cells (4 merged into 1): in the main curve (_rel, epidermis part of the tissue) the outer
     # end rises above the cortex peak, so the peak sits at the edge; without the tagged cells (_rel_cortex) it does not

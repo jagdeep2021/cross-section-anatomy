@@ -536,7 +536,7 @@ def sector_traits(cells, region, props, centre, arcs) -> dict:
     a = props[props.tissue == "air_space"]
     stele_px = int((region == 2).sum())
     ctx_kept = int((outer & keep_px).sum())
-    return {"angle_kept_deg": kept,
+    out = {"angle_kept_deg": kept,
             "excluded_sectors": "; ".join(f"{a_:.0f}-{b_:.0f} {r}" for a_, b_, r in arcs),
             "low_coverage": bool(kept < MIN_KEPT_DEG),
             "n_cortical_layers": float(np.median(rays)) if rays else np.nan,
@@ -556,6 +556,19 @@ def sector_traits(cells, region, props, centre, arcs) -> dict:
             "quarters_used": ",".join(str(q) for q, *_ in QUARTERS if quarter_kept_deg(arcs, q) >= MIN_QUARTER_DEG),
             "n_giant_cortex_cells": int((c.area_px > 5 * c.area_px.median()).sum()) if len(c) else 0,
             "epidermis_deg": epidermis_deg(props, arcs)}
+    out["stele_found"] = stele_px > 0
+    if not stele_px:            # root tip / stele cut off: no cortex without a stele -> blank, never 0
+        out.update({k: np.nan for k in NEEDS_STELE if k in out})
+    return out
+
+
+# traits that only exist once the stele is outlined (blank, not 0, without one: a 0 would drag means down)
+NEEDS_STELE = ("n_cortical_layers", "n_cortical_layers_min", "n_cortical_layers_max", "n_cortex_cells",
+               "n_air_spaces", "air_space_total_area_px", "mean_cortex_cell_area_px", "median_cortex_cell_area_px",
+               "cortex_width_px", "cortex_area_kept_px", "cortex_area_est_px", "stele_share_est",
+               "n_cortex_cells_est", "n_air_spaces_est", "n_giant_cortex_cells", "stele_area_px", "mx_n",
+               "mx_mean_area_px", "mx_total_area_px", "n_lacunae", "lacuna_area_px", "n_gaps_missed_cell",
+               "aerenchyma_share", "lacuna_r_norm_mean")
 
 
 def sector_profile(props, n_bins: int = 10, ref=None, by: str = "position", n_files=None,

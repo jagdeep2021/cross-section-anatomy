@@ -156,3 +156,11 @@ Rooh started on 2026-10-27 as `cross_section_anatomy`, was briefly renamed JadNa
   - **methods_DATE.txt**: a Methods draft written from the same constants the code uses, one line per paragraph so it pastes into Word.
 - **Fixed on the way:** `root_diameter_eq_um` was never written (the µm conversion missed it). `n_cortical_layers_min/_max` and `n_low_coverage` had no description. In `spline_curves` the 0-1 axis is now `x_position` (it was `x`, which in all_cells means pixels from the left).
 - **Enforced:** `tests/check_numbers.py` fails if any output column has no description, if run_info or the methods file is missing, or if `root_diameter_eq_um` is missing. 148 of 148 pass.
+
+## 2026-11-03 (evening) · First real project through the new outputs: B73 R1 root tip (web)
+- **What it showed:** 39 sections (17 reviewed), made locally from a copy of the web masks.
+- **Bug fixed: no stele gave zeros.** Root-tip sections (S01, S03–S07) and S37 (stele cut off by the frame) reported 0 cortical layers, 0 stele area and 0 cortex cells. A zero reads as a measurement and drags means down. Now `stele_found` = FALSE and every stele-dependent column is blank (`pipeline.NEEDS_STELE`); root size is still measured. Check 11e.
+- **Fixed: free-text notes became groups.** A samples.xlsx column like `check` ("torn: ...") was used as a grouping column. Columns whose names start with note / check / comment / remark are now copied to per_image as text and never group.
+- **Lacunae, first real positives:** mature sections S34 (6) and S39 (8) show lacunae in the mid-cortex, clear of the stele and the epidermis. That is the detection working on real aerenchyma, and the position the hypothesis predicts. Figure drawn by the scratch QC script; to be redrawn from the repo for the decision document.
+- **Pattern along the root (descriptive, one root):** peak relative size rises from about 1.1 at S09–S13 to about 2.3 at S29–S39, with the peak at r_norm 0.25–0.33 in mature sections.
+- **Checks:** 156 of 156 pass.
