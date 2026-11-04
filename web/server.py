@@ -200,10 +200,24 @@ def queue_measure(d: Path) -> dict:
 
 # ---------------------------------------------------------------- display layers
 
+# Display files (pictures, plots, the trait cache) depend on the code as well as the masks: a fingerprint of the
+# measurement code names their folder, so after a deploy that changes a rule every project redraws once, on first view.
+CODE = hashlib.sha1(b"".join((Path(__file__).resolve().parent.parent / f).read_bytes() for f in (
+    "pipeline.py", "pattern_plots.py", "summarise.py", "run_batch.py", "web/server.py"))).hexdigest()[:12]
+
+
+def _cache_dir(d: Path) -> Path:
+    root, c = d / ".cache", d / ".cache" / CODE
+    if not c.exists():
+        c.mkdir(parents=True, exist_ok=True)
+        for old in root.iterdir():               # drawn by older code: never shown again
+            if old != c:
+                shutil.rmtree(old, ignore_errors=True) if old.is_dir() else old.unlink(missing_ok=True)
+    return c
+
+
 def _cache(d: Path, key: str, kind: str) -> Path:
-    c = d / ".cache"
-    c.mkdir(exist_ok=True)
-    return c / f"{key}.{kind}.png"
+    return _cache_dir(d) / f"{key}.{kind}.png"
 
 
 def gray_png(d: Path, rel: str) -> Path:
@@ -478,9 +492,9 @@ def pattern(name: str, rel: str, u: dict = Depends(user)):
 @app.get("/api/projects/{name}/all_traits")
 def all_traits(name: str, u: dict = Depends(user)):
     """Every measured image's numbers (for the per-image bars that show outliers). Cached per image until its
-    mask changes, so only edited images are recomputed."""
+    mask or the measurement code changes, so only edited images are recomputed."""
     d = _project(u, name)
-    f = d / ".cache" / "traits.json"
+    f = _cache_dir(d) / "traits.json"
     cache = json.loads(f.read_text()) if f.exists() else {}
     out = []
     for im in _images(d):
@@ -491,7 +505,6 @@ def all_traits(name: str, u: dict = Depends(user)):
         if cache.get(im["image"], {}).get("mtime") != t:
             cache[im["image"]] = {"mtime": t, "traits": traits(name, im["image"], u)}
         out.append({"image": im["image"], **cache[im["image"]]["traits"]})
-    f.parent.mkdir(exist_ok=True)
     f.write_text(json.dumps(cache))
     return out
 
