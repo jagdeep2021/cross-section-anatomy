@@ -87,3 +87,21 @@ Rooh started on 2026-10-27 as `cross_section_anatomy`, was briefly renamed JadNa
 - **Rooh's method:** stele edge to root edge at each cell's angle.
 - **Decision:** Rooh keeps its own position. Tyler's math will be added as `tyler_*` columns on the same cells, and is accepted only once it reproduces his `feature_table.csv`.
 - **Status:** pending.
+
+## 2026-11-03 · Whole method, Tyler vs Rooh, on one of Tyler's real images
+- **Figure:** ![Tyler vs Rooh, step by step](method_tyler_vs_rooh.png)
+- It is drawn by `04_root_anatomy/scripts/03_profile_method_test/00_plot_method_diagram.py` from Tyler's own per-cell CSV (IBM `BL_15_P1_W2_WS_1 (3)`, 215 cells).
+- **The four steps that differ:**
+  1. **Position.** Tyler measures distance from the image corner, min–max scaled. Rooh measures from the stele edge to the root edge at each cell's angle.
+  2. **Size.** Tyler min–max scales area. Rooh divides area by the median cell.
+  3. **Bins.** Tyler uses 20 bins with the mean and equal weight. Rooh uses 10 bins with the median, weighted by cells per bin.
+  4. **Curve.** Tyler fits one cubic polynomial. Rooh fits a GCV smoothing spline.
+- **What the maths shows on Tyler's data:**
+  - `UnivariateSpline(s = 0.1·n)` never adds a knot. It fit a plain cubic in 491 of 491 sampled images, matching `np.polyfit(deg=3)` to 1e-15.
+  - His AUC and average normalised size correlate at r = 1.000.
+  - 78% of roots have outer rise > 0. That is partly the cubic's built-in upturn.
+  - Min–max area is an affine rescale: peak and minimum positions survive it, but heights, slopes and AUC scale with the largest cell.
+- **In this image:**
+  - The outer layer reads 1.00 at one end of the quarter and 0.83 at the other, because the root centre is not at the corner.
+  - One cell at 8× the median compresses Tyler's whole y axis to about 0–0.3.
+- **Status:** a reliability test is next (`03_profile_method_test/01_*`). It compares split-half agreement within sections (1,316 sections with all four quarters) and repeat sections of the same root (66 IBM roots). It runs each of Tyler's steps swapped one at a time, so we can see which change matters.
