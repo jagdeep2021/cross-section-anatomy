@@ -86,7 +86,21 @@ def segment_cells(gray: np.ndarray, diameter: float | None = None, model_path: s
     return masks.astype(np.uint16)
 
 
-def find_root(gray: np.ndarray, cells: np.ndarray) -> np.ndarray:
+def root_from_cells(cells: np.ndarray, close_px: int = 15) -> np.ndarray:
+    """The root outline from the cells alone: every cell merged, gaps closed, holes (lacunae, the stele's
+    unsegmented bits) filled, largest piece. The user edits cells and the outline follows."""
+    fg = morphology.closing(cells > 0, morphology.disk(close_px))
+    fg = ndi.binary_fill_holes(fg)
+    lab = measure.label(fg)
+    if lab.max() == 0:
+        return fg
+    biggest = np.argmax(np.bincount(lab.ravel())[1:]) + 1
+    return morphology.opening(lab == biggest, morphology.disk(5))
+
+
+def find_root(gray: np.ndarray, cells: np.ndarray, use_walls: bool = True) -> np.ndarray:
+    if not use_walls:
+        return root_from_cells(cells)
     sm = filters.gaussian(gray, 2)
     fg = (sm > filters.threshold_li(sm)) | (cells > 0)
     fg = morphology.closing(fg, morphology.disk(15))
@@ -310,6 +324,7 @@ def derive(cells: np.ndarray, region: np.ndarray, mx: np.ndarray, angle_deg: flo
     mxp = pd.DataFrame(measure.regionprops_table(mx, properties=("label", "area"))) if mx.any() else pd.DataFrame(columns=["label", "area"])
     traits = {
         "root_area_px": int(root.sum()),
+        "root_diameter_eq_px": float(2 * np.sqrt(root.sum() / np.pi)),
         "stele_area_px": int(stele.sum()),
         "cortex_area_px": int(root.sum() - stele.sum()),
         "n_cortical_layers": float(np.median([ray_layers(cells, region, props, centre_of(region, centre), t)
@@ -355,19 +370,57 @@ RAY_ANGLES = np.arange(2.5, 360, 5)  # layer counts: one ray every 5 degrees (on
                                      # round angles so a ray does not run along a radial wall drawn at one
 
 
-def ray_layers(cells, region, props, centre, theta_deg: float) -> int:
-    """Distinct cortical cells crossed by one ray from the centre to the root edge."""
-    cortex = set(props.label[props.tissue == "cortex"])
+def ray_cells(cells, centre, theta_deg: float, labels) -> list:
+    """Cells in `labels` crossed by one ray from the centre outwards, in order (first crossing). A cell counts when
+    the ray stays in it >= 2 px (a ray grazing a wall corner is not a crossing)."""
     t = np.radians(theta_deg)
     r = np.arange(0, max(cells.shape))
     y = np.round(centre[0] - r * np.sin(t)).astype(int)
     x = np.round(centre[1] + r * np.cos(t)).astype(int)
     ok = (y >= 0) & (y < cells.shape[0]) & (x >= 0) & (x < cells.shape[1])
     lab = cells[y[ok], x[ok]]
-    run = np.r_[True, lab[1:] != lab[:-1]].cumsum()            # runs of the same label along the ray
-    n = np.bincount(run)
-    # a cell counts when the ray stays in it >= 2 px (a ray grazing a wall corner is not a layer)
-    return len({int(l) for l, k in zip(lab, run) if l in cortex and n[k] >= 2})
+    if not len(lab):
+        return []
+    start = np.r_[0, np.nonzero(lab[1:] != lab[:-1])[0] + 1]     # runs of the same label along the ray
+    length = np.diff(np.r_[start, len(lab)])
+    out, seen = [], set()
+    for l, n in zip(lab[start], length):
+        l = int(l)
+        if n >= 2 and l in labels and l not in seen:
+            seen.add(l)
+            out.append(l)
+    return out
+
+
+def ray_layers(cells, region, props, centre, theta_deg: float) -> int:
+    """Distinct cortical cells crossed by one ray from the centre to the root edge (CCFN on that ray)."""
+    return len(ray_cells(cells, centre, theta_deg, set(props.label[props.tissue == "cortex"])))
+
+
+# ---------------------------------------------------------------- cell files (decided with Jagdeep 2026-11-03)
+# Cortical cell file number per cell, from the same kind of rays that count CCFN: along each ray (every
+# FILE_STEP_DEG in the kept angles) the cortical cells are numbered 1, 2 ... from the stele out; a cell's file is the
+# median of the numbers its rays gave it (file_rel: median of (k - 0.5) / n, n = cortical cells on that ray). A missed
+# or merged cell renumbers the files outside it on that ray only; the median over many rays absorbs it, and
+# n_cortical_layers_min / _max show when it can't.
+FILE_STEP_DEG = 0.5
+
+
+def cell_files(cells, props, centre, arcs=(), step: float = FILE_STEP_DEG) -> pd.DataFrame:
+    """index label -> file (median number, 1 = next to the stele), file_rel (0-1), n_rays. props: after
+    exclude_sectors (only kept cortex is numbered)."""
+    cortex = set(props.label[props.tissue == "cortex"].astype(int))
+    nums, rels = {}, {}
+    for t in np.arange(step / 2, 360, step):
+        if arcs and in_arcs([t], arcs)[0]:
+            continue
+        seq = ray_cells(cells, centre, t, cortex)
+        for k, l in enumerate(seq, 1):
+            nums.setdefault(l, []).append(k)
+            rels.setdefault(l, []).append((k - 0.5) / len(seq))
+    return pd.DataFrame({"file": {l: float(np.median(v)) for l, v in nums.items()},
+                         "file_rel": {l: float(np.median(v)) for l, v in rels.items()},
+                         "n_rays": {l: len(v) for l, v in nums.items()}}, dtype=float)
 
 
 # ---------------------------------------------------------------- sectors (decided with Jagdeep 2026-11-02)
@@ -383,6 +436,17 @@ SECTOR_REASONS = ("torn", "folded", "smeared / oblique", "out of focus", "debris
 SECTOR_TISSUES = ("cortex", "epidermis", "air_space", "unassigned")
 MIN_KEPT_DEG = 45          # below this the image is flagged low_coverage
 MIN_CELLS_PER_BIN = 5      # a profile bin with fewer cortical cells is flagged
+MIN_EPI_DEG = 90           # epidermis point flagged (few_cells) when epidermal cells cover fewer kept degrees: Cellpose
+                           # often misses the epidermis (Hallie's auto masks 2026-11-03: 25-300 of 360 deg covered)
+
+
+def epidermis_deg(props, arcs=()) -> float:
+    """Kept degrees (in 5-deg steps) that hold at least one epidermal cell centre."""
+    e = props[props.tissue == "epidermis"]
+    if not len(e):
+        return 0.0
+    steps = set((np.floor(np.mod(np.degrees(e.angle_rad), 360) / 5)).astype(int))
+    return float(5 * sum(1 for k in steps if not (arcs and in_arcs([5 * k + 2.5], arcs)[0])))
 
 
 def angle_of(y, x, centre):
@@ -482,27 +546,129 @@ def sector_traits(cells, region, props, centre, arcs) -> dict:
             "cortex_area_est_px": ctx_kept * scale,
             "root_area_est_px": stele_px + ctx_kept * scale,
             "stele_share_est": stele_px / (stele_px + ctx_kept * scale) if kept > 0 else np.nan,
-            "n_cortex_cells_est": len(c) * scale, "n_air_spaces_est": len(a) * scale}
+            "n_cortex_cells_est": len(c) * scale, "n_air_spaces_est": len(a) * scale,
+            "root_diameter_px": float(2 * np.mean(r_rt[keep_deg_mask])) if keep_deg_mask.any() else np.nan,
+            "quarters_used": ",".join(str(q) for q, *_ in QUARTERS if quarter_kept_deg(arcs, q) >= MIN_QUARTER_DEG),
+            "n_giant_cortex_cells": int((c.area_px > 5 * c.area_px.median()).sum()) if len(c) else 0,
+            "epidermis_deg": epidermis_deg(props, arcs)}
 
 
-def sector_profile(props, n_bins: int = 10) -> pd.DataFrame:
-    """The image's cortex pattern from every kept cortical cell: r_norm in n_bins equal bins (1 = next to the stele;
-    r_norm is normalised along each cell's own direction, so an uneven cortex is not mixed across layers), median
-    cell area per bin, n per bin; then the epidermis as its own last row (bin = 'epidermis'). rel = median / the
-    image's median cortical cell area. props: after exclude_sectors."""
+def sector_profile(props, n_bins: int = 10, ref=None, by: str = "position", n_files=None) -> pd.DataFrame:
+    """The cortex pattern from every kept cortical cell, then the epidermis as the last row (bin = 'epidermis').
+    by = "position": r_norm in n_bins equal bins (1 = next to the stele; r_norm is normalised along each cell's own
+         direction, so an uneven cortex is not mixed across layers); x = bin centre.
+    by = "file": one row per cell file (props.file rounded; 1 = next to the stele); x = (file - 0.5) / n_files.
+    Median cell area per row, n per row; the epidermis sits one step past the cortex (x = 1 + half a step).
+    rel = median / ref (default: the median of these cortical cells; pass the section's for a quarter).
+    props: after exclude_sectors (and with file columns for by="file")."""
     c = props[props.tissue == "cortex"]
-    med = c.area_px.median() if len(c) else np.nan
-    b = (np.clip(c.r_norm, 0, 0.999) * n_bins).astype(int) + 1
-    g = c.area_px.groupby(b).agg(["median", "size"]).reindex(range(1, n_bins + 1))
-    rows = [{"bin": str(k), "x": (k - 0.5) / n_bins, "n_cells": int(0 if pd.isna(r["size"]) else r["size"]),
-             "median_area_px": r["median"]} for k, r in g.iterrows()]
+    med = (c.area_px.median() if len(c) else np.nan) if ref is None else ref
+    if by == "file":
+        c = c.dropna(subset=["file"])
+        k = np.floor(c.file + 0.5).astype(int)
+        top = int(k.max()) if len(k) else 0
+        n = float(n_files) if n_files and np.isfinite(n_files) and n_files > 0 else max(top, 1)
+        g = c.area_px.groupby(k).agg(["median", "size"]).reindex(range(1, top + 1))
+        rows = [{"bin": str(i), "x": (i - 0.5) / n, "n_cells": int(0 if pd.isna(r["size"]) else r["size"]),
+                 "median_area_px": r["median"]} for i, r in g.iterrows()]
+        epi_x = 1 + 0.5 / n
+    else:
+        b = (np.clip(c.r_norm, 0, 0.999) * n_bins).astype(int) + 1
+        g = c.area_px.groupby(b).agg(["median", "size"]).reindex(range(1, n_bins + 1))
+        rows = [{"bin": str(k), "x": (k - 0.5) / n_bins, "n_cells": int(0 if pd.isna(r["size"]) else r["size"]),
+                 "median_area_px": r["median"]} for k, r in g.iterrows()]
+        epi_x = 1 + 0.5 / n_bins
     e = props[props.tissue == "epidermis"]
-    rows.append({"bin": "epidermis", "x": 1 + 0.5 / n_bins, "n_cells": len(e),
+    rows.append({"bin": "epidermis", "x": epi_x, "n_cells": len(e),
                  "median_area_px": e.area_px.median() if len(e) else np.nan})
     d = pd.DataFrame(rows)
     d["rel"] = d.median_area_px / med
     d["few_cells"] = (d.n_cells < MIN_CELLS_PER_BIN) & (d.bin != "epidermis")
+    d.loc[d.bin == "epidermis", "few_cells"] = epidermis_deg(props) < MIN_EPI_DEG * (1 if ref is None else 0.25)
     return d
+
+
+# ---------------------------------------------------------------- quarters (decided with Jagdeep 2026-11-03)
+# Four fixed quarters around the stele centre, on the image axes (Q1 = 0-90 deg, top right, then counter-clockwise),
+# as in Tyler's maize-cells quarter images. Excluded arcs take cortex out inside a quarter; a quarter with fewer than
+# MIN_QUARTER_DEG kept is not used. Stele and metaxylem are never per quarter (whole section).
+QUARTERS = ((1, 0, 90), (2, 90, 180), (3, 180, 270), (4, 270, 360))
+MIN_QUARTER_DEG = 45
+
+
+def quarter_of(deg) -> np.ndarray:
+    return (np.mod(np.asarray(deg, float), 360) // 90).astype(int) + 1
+
+
+def quarter_kept_deg(arcs, q: int) -> float:
+    a = np.arange(90 * (q - 1), 90 * q, 0.25) + 0.125
+    return float((~in_arcs(a, arcs)).sum() * 0.25)
+
+
+# ---------------------------------------------------------------- aerenchyma lacunae (decided 2026-11-03)
+# A lacuna = a gap in the cortex that is not a cell, >= LACUNA_MIN_CELLS x the median cortical cell, touching
+# neither the root edge (torn margins, the band outside the epidermis) nor the stele (tears and stele outline errors;
+# lysigenous lacunae form in the mid cortex, the inner cortex stays intact). Derived from the masks (nothing stored):
+# the user fixes a false one by drawing the missing cell(s). Gaps of about one cell (GAP_MIN_CELLS .. LACUNA_MIN_CELLS
+# x the median) are counted as n_gaps_missed_cell: usually a cell Cellpose missed, a review hint. The thin wall lines
+# between cells are broken by an opening first; air spaces (small objects at cell junctions) stay their own class.
+# Checked 2026-11-03 on Hallie's maize (no aerenchyma): the 1x-median rule found 6 false lacunae (missed cells, a
+# tear at the stele); with these two rules none.
+LACUNA_MIN_CELLS = 2.0
+GAP_MIN_CELLS = 0.5
+def pixel_position(region: np.ndarray, centre):
+    """r_norm (0 stele edge, 1 root edge, along each pixel's direction) and angle (deg) for every pixel."""
+    r_st, r_rt = radial_profile(region, centre)
+    yy, xx = np.indices(region.shape)
+    deg = angle_of(yy, xx, centre)
+    d = np.mod(np.round(deg), 360).astype(int)
+    r = np.hypot(yy - centre[0], xx - centre[1])
+    return (r - r_st[d]) / np.maximum(r_rt[d] - r_st[d], 1), deg
+
+
+def lacunae(cells, region, mx, props, centre, arcs=(), n_bins: int = 10):
+    """(per-lacuna table, aerenchyma profile per r_norm bin, n_gaps_missed_cell). props: after exclude_sectors. Only
+    lacunae whose centre is in the kept angles count; the profile = lacuna pixels / cortex pixels per bin, kept angles."""
+    root, stele = region >= 1, region == 2
+    c = props[props.tissue == "cortex"]
+    med = float(c.area_px.median()) if len(c) else np.nan
+    rn, deg = pixel_position(region, centre)
+    ctx = root & ~stele & ~in_arcs(deg, arcs)
+    bins = np.clip((np.clip(rn, 0, 0.999) * n_bins).astype(int), 0, n_bins - 1)
+    empty = pd.DataFrame(columns=["lacuna", "area_px", "y", "x", "angle_deg", "quarter", "r_norm", "r_norm_inner",
+                                  "r_norm_outer"])
+    lab = np.zeros(region.shape, np.int32)
+    n_gaps = 0
+    if np.isfinite(med):
+        gap = root & ~stele & (cells == 0) & (mx == 0)
+        rad = max(2, int(round(0.1 * np.sqrt(med))))
+        core = measure.label(morphology.opening(gap, morphology.disk(rad)))
+        core = segmentation.expand_labels(core, rad) * gap
+        edge = root & ~morphology.erosion(root, morphology.disk(6))
+        near_stele = morphology.dilation(stele, morphology.disk(3))
+        rows = []
+        for g in measure.regionprops(core):
+            m = core == g.label
+            cy, cx = g.centroid
+            a = float(angle_of(cy, cx, centre))
+            if (m & edge).any() or (m & near_stele).any() or (arcs and in_arcs([a], arcs)[0]):
+                continue
+            if g.area < LACUNA_MIN_CELLS * med:
+                n_gaps += int(g.area >= GAP_MIN_CELLS * med)
+                continue
+            lab[m] = len(rows) + 1
+            rows.append({"lacuna": len(rows) + 1, "area_px": int(g.area), "y": cy, "x": cx, "angle_deg": a,
+                         "quarter": int(quarter_of(a)), "r_norm": float(rn[m].mean()),
+                         "r_norm_inner": float(rn[m].min()), "r_norm_outer": float(rn[m].max())})
+        table = pd.DataFrame(rows) if rows else empty
+    else:
+        table = empty
+    tot = np.bincount(bins[ctx], minlength=n_bins)
+    hole = np.bincount(bins[ctx & (lab > 0)], minlength=n_bins)
+    prof = pd.DataFrame({"bin": np.arange(1, n_bins + 1), "x": (np.arange(n_bins) + 0.5) / n_bins,
+                         "cortex_px": tot, "lacuna_px": hole,
+                         "lacuna_share": np.where(tot > 0, hole / np.maximum(tot, 1), np.nan)})
+    return table, prof, n_gaps
 
 
 def layer_image(cells: np.ndarray, props: pd.DataFrame) -> np.ndarray:

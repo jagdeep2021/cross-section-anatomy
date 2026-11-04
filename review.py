@@ -613,17 +613,31 @@ class Reviewer:
         st = P.sector_traits(cells, region, props, centre, self.arcs)
         self.air.data = np.isin(cells, props.label[props.tissue == "air_space"].values).astype(np.uint8)
         cy, cx = centre
-        L = 0.5 * max(self.gray.shape)
+        r_st, r_rt = P.radial_profile(region, centre)
+        rad = lambda prof, t: prof[np.mod(np.round(t), 360).astype(int)]
         self.sect.data = []
         spots, names = [], []
-        for a0, a1, why in self.arcs:          # each excluded arc: a grey wedge, its reason at the middle
+        for a0, a1, why in self.arcs:          # each excluded arc: grey on the cortex only (stele edge -> root edge)
             span = (a1 - a0) % 360 or 360
-            t = np.radians(a0 + np.linspace(0, span, max(3, int(span / 3))))
-            wedge = np.r_[[[cy, cx]], np.c_[cy - L * np.sin(t), cx + L * np.cos(t)]]
-            self.sect.add_polygons([wedge], face_color=[0.5, 0.5, 0.5, 0.45], edge_color="white", edge_width=1)
-            tm = np.radians(a0 + span / 2)
-            spots.append([cy - 0.6 * L * np.sin(tm), cx + 0.6 * L * np.cos(tm)])
+            t = a0 + np.linspace(0, span, max(3, int(span / 2)))
+            tr = np.radians(t)
+            ro, ri = rad(r_rt, t), rad(r_st, t)
+            band = np.r_[np.c_[cy - ro * np.sin(tr), cx + ro * np.cos(tr)],
+                         np.c_[cy - ri * np.sin(tr), cx + ri * np.cos(tr)][::-1]]
+            self.sect.add_polygons([band], face_color=[0.5, 0.5, 0.5, 0.45], edge_color="white", edge_width=1)
+            tm = a0 + span / 2
+            rm = 0.5 * (rad(r_st, tm) + rad(r_rt, tm))
+            spots.append([cy - rm * np.sin(np.radians(tm)), cx + rm * np.cos(np.radians(tm))])
             names.append(f"{why}  ({span:.0f}°)")
+        for q, a, _ in P.QUARTERS:             # quarter lines from the stele edge out; names just outside the root
+            t = np.radians(a)
+            self.sect.add_lines([np.array([[cy - rad(r_st, a) * np.sin(t), cx + rad(r_st, a) * np.cos(t)],
+                                           [cy - rad(r_rt, a) * np.sin(t), cx + rad(r_rt, a) * np.cos(t)]])],
+                                edge_color=[1, 1, 1, 0.6], edge_width=1)
+            tm = a + 45
+            rq = rad(r_rt, tm) * 1.06
+            spots.append([cy - rq * np.sin(np.radians(tm)), cx + rq * np.cos(np.radians(tm))])
+            names.append(f"Q{q}")
         self.slab.data = np.array(spots) if spots else np.empty((0, 2))
         if spots:
             self.slab.features = {"why": names}

@@ -105,3 +105,24 @@ Rooh started on 2026-10-27 as `cross_section_anatomy`, was briefly renamed JadNa
   - The outer layer reads 1.00 at one end of the quarter and 0.83 at the other, because the root centre is not at the corner.
   - One cell at 8× the median compresses Tyler's whole y axis to about 0–0.3.
 - **Status:** a reliability test is next (`03_profile_method_test/01_*`). It compares split-half agreement within sections (1,316 sections with all four quarters) and repeat sections of the same root (66 IBM roots). It runs each of Tyler's steps swapped one at a time, so we can see which change matters.
+
+## 2026-11-03 · Quarters back (alongside sectors), cell file number, epidermis in the pattern, aerenchyma lacunae
+- **Quarters (Jagdeep):** Tyler's idea of four quarters averaged is kept, with deletion inside quarters.
+  - Every feature comes out for the section, Q1–Q4, and the quarter mean and SD.
+  - A quarter needs at least 45° kept.
+  - Stele and metaxylem are never per quarter.
+  - The editors shade excluded arcs on the cortex only, from the stele edge to the root edge, so nothing looks as if the stele was removed.
+  - Which is the headline number, the pooled section or the quarter mean, is left to a reliability test.
+- **Cell file number:** rays every 0.5° number the cortical cells from the stele out, and each cell takes the median of its numbers.
+  - This gives two patterns: by position (0–1) and by file.
+  - Synthetic check: all 288 cells get their true layer.
+  - On Hallie's good masks the files form clean rings. On A6_5_1, where the stele outline is wrong, they scramble (up to 18), and the CCFN range shows it.
+- **Epidermis included (Jagdeep):** the epidermis is the last point of the curve, the lip.
+  - Found while testing: when the epidermis is the biggest point, the "peak" jumps to it. So the peak is searched only in the cortex, and the epidermis shows up as outer rise.
+  - Found on the auto masks: Cellpose covers the epidermis on only 25–300° of 360°. Hence `epidermis_deg` and the flag below 90°, with `_rel_cortex` kept as the fallback.
+- **Aerenchyma lacunae:** non-cell gaps at least 2× the median cell, touching neither the stele nor the edge.
+  - A first rule (at least 1× the median, edge only) found 6 false lacunae on Hallie's maize, which has no aerenchyma. They were missed cells and a tear at a wrong stele. The tightened rule finds none on those three sections.
+  - Positives are checked only on synthetic data so far: one 4-cell lacuna is found at the right area, position and bins. **A real aerenchyma section is still needed to confirm.**
+- **Root outline:** the cells-only outline was tested and rejected. It was 1.4–11.6% smaller on fluorescence because Cellpose misses the epidermis.
+  - The brightfield "outline = microscope field" problem in `examples/amool_*` comes from stale Oct 30 masks made before the inversion fix. A fresh auto pass fixes it.
+- **Checks:** `tests/check_numbers.py` now passes 140 of 140 (it was 105 + 2 known failures). New: file = layer, file pattern, quarters used and quarter mean, diameter, lacuna area / position / bins, a tear at the stele (not a lacuna), a one-cell gap (a hint, not a lacuna), and a big epidermis (lip in `_rel`, not in `_rel_cortex`).

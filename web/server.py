@@ -433,7 +433,9 @@ def traits(name: str, rel: str, u: dict = Depends(user)):
     tr.pop("cortex_area_px", None)
     tr["status"] = status
     # for drawing the excluded arcs on the page (as review.py does)
-    tr["sectors"] = {"centre": [float(c) for c in centre], "arcs": [[float(a), float(b), r] for a, b, r in arcs]}
+    r_st, r_rt = P.radial_profile(region, centre)
+    tr["sectors"] = {"centre": [float(c) for c in centre], "arcs": [[float(a), float(b), r] for a, b, r in arcs],
+                     "rst": [float(v) for v in r_st], "rrt": [float(v) for v in r_rt]}   # stele / root radius per degree
     clean = lambda v: None if isinstance(v, float) and np.isnan(v) else v.item() if isinstance(v, np.generic) else v
     return {k: clean(v) for k, v in tr.items()}
 

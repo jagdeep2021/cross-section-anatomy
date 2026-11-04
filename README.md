@@ -131,6 +131,26 @@ Everything else is derived by `derive()`, so the editor and the summary always a
   - Why: on R1 (04_root_anatomy `12_sector_vs_spoke`) the pattern from all cortical cells was far more
     reliable than from one file: split-half r 0.87 vs 0.52, sectors better in 16 of 19 sections (Wilcoxon
     *P* = 0.002), ~340 vs ~31 cells per section.
+- **Quarters (2026-11-03, alongside sectors)**: Q1 = 0-90° (top right), counter-clockwise, around the stele centre.
+  Excluded arcs take cortex out inside a quarter; a quarter with < 45° kept is not used. Every feature is given for
+  the section (all kept cells), each quarter, and the quarter mean / SD (Tyler's maize-cells unit). Stele and
+  metaxylem: whole section only. Editors draw quarter lines and excluded arcs on the cortex only (stele edge -> root edge).
+- **Cell file number (2026-11-03)**: rays every 0.5° in the kept angles number the cortical cells 1, 2 ... from the
+  stele out; a cell's `file` = median of its numbers, `file_rel` = median of (k - 0.5) / n. Gives the second pattern
+  (`basis = file`: median area per file) next to the position pattern (`basis = position`).
+- **Epidermis in the pattern (2026-11-03)**: the epidermis is the curve's last point (x = 1.05), the "lip". Features
+  `_rel` / `_abs` include it, `_rel_cortex` leaves it out. The peak is always searched in the cortex (x <= 1), so a big
+  epidermis shows up as outer_rise, never as the peak. Cellpose often misses epidermal cells (auto masks covered 25-300
+  of 360°): `epidermis_deg` < 90 flags the point (open square, `epidermis_few`); then use `_rel_cortex`.
+  `samples.xlsx` column `epidermis` (yes / no / empty) records whether it was intact.
+- **Aerenchyma lacunae (2026-11-03)**: a non-cell gap in the cortex >= 2 x the median cortical cell, touching neither
+  the root edge nor the stele, centre in the kept angles. Derived from the masks (fix a false one by drawing the missing
+  cell). Per lacuna: area, angle, quarter, r_norm (mean, inner, outer) (`lacunae` sheet); per image x r_norm bin: lacuna
+  share of the cortex (`aerenchyma_profile`), to test where aerenchyma forms. One-cell gaps (0.5-2 x) =
+  `n_gaps_missed_cell`, a review hint. Cortex cells > 5 x median = `n_giant_cortex_cells` (a lacuna taken for a cell?).
+- **Root diameter (2026-11-03)**: `root_diameter` = 2 x mean root radius over the kept degrees (from the stele centre);
+  `root_diameter_eq` = equal-area circle. The outline stays walls + cells: a cells-only outline was 1.4-11.6% smaller on
+  Hallie's sections because Cellpose misses epidermal cells (`root_from_cells` kept, unused).
 - **Cortical layers** = cortical cells crossed by a ray from the centre out (a cell counts when the ray stays in
   it >= 2 px), rays every 5° (offset 2.5°) in the kept angles; `n_cortical_layers` = median, `_min` / `_max` the
   range (one side can carry an extra layer; a wide range on a real image is worth a look).

@@ -97,7 +97,8 @@ MED_CORTEX = float(np.median(np.repeat(CELL_AREA, SECT)))     # the reference fo
 EPI_AREA = ann_area(EDGES[-1], R_EPI, 72)
 TOL = {"root_area_px": .005, "stele_area_px": .01, "cortex_area_px": .005, "cortex_width_px": .01,
        "mean_cortex_cell_area_px": .02, "mx_mean_area_px": .04, "cortex_area_kept_px": .005,
-       "cortex_area_est_px": .005, "root_area_est_px": .005, "stele_share_est": .01, "epidermis_rel": .03}
+       "cortex_area_est_px": .005, "root_area_est_px": .005, "stele_share_est": .01, "epidermis_rel": .03,
+       "lacuna_area_px": .03, "lacuna_r_norm_mean": .03}
 
 
 def write_project(d: Path, images: dict):
@@ -117,10 +118,17 @@ def results(d: Path) -> dict:
     SUM.main(d / "anatomy")
     out = d / "results"
     img = pd.read_excel(next(out.glob("anatomy_summary_*.xlsx")), sheet_name="per_image")
-    prof = pd.read_excel(next(out.glob("cortex_pattern_*.xlsx")), sheet_name="per_image_profile", dtype={"bin": str})
+    prof_all = pd.read_excel(next(out.glob("cortex_pattern_*.xlsx")), sheet_name="per_image_profile", dtype={"bin": str})
+    prof = prof_all[(prof_all.basis == "position") & (prof_all.scope == "section")]
     plant = pd.read_excel(next(out.glob("anatomy_summary_*.xlsx")), sheet_name="per_plant")
     cells = pd.read_excel(next(out.glob("all_cells_*.xlsx")), sheet_name="all_cells")
-    return {"img": img.set_index("image_file"), "prof": prof, "plant": plant, "cells": cells}
+    img["quarters_used"] = img.quarters_used.astype(str)
+    feats = pd.read_excel(next(out.glob("cortex_pattern_*.xlsx")), sheet_name="profile_features")
+    xl = next(out.glob("anatomy_summary_*.xlsx"))
+    lac = pd.read_excel(xl, sheet_name="lacunae")
+    aer = pd.read_excel(next(out.glob("cortex_pattern_*.xlsx")), sheet_name="aerenchyma_profile")
+    return {"img": img.set_index("image_file"), "prof": prof, "prof_all": prof_all, "plant": plant, "cells": cells,
+            "feats": feats, "lac": lac, "aer": aer}
 
 
 CHECKS: list[dict] = []
@@ -166,6 +174,29 @@ def run(out_dir: Path):
         r_mid = (EDGES[k] + EDGES[k + 1]) / 2
         b = str(int(min((r_mid - R_STELE) / (R_ROOT - R_STELE), 0.999) * SUM.N_BINS) + 1)
         check("base", f"layer {k + 1}: median area in bin {b}", float(f.median_area_px[b]), CELL_AREA[k], .03)
+
+    # cell files (2026-11-03): every cortical cell gets the number of its layer
+    ac = r["cells"][(r["cells"].image_file == "S.tif") & (r["cells"].tissue == "cortex")]
+    layer_true = np.searchsorted(EDGES, ac.r_px.values, side="right")
+    check("base", "file number = layer, every cortical cell", float((np.floor(ac.file + 0.5) == layer_true).mean()), 1.0)
+    check("base", "every cortical cell has a file number", int(ac.file.notna().sum()), 8 * SECT)
+    pf = r["prof_all"][(r["prof_all"].image_file == "S.tif") & (r["prof_all"].basis == "file")
+                       & (r["prof_all"].scope == "section")].set_index("bin")
+    check("base", "file pattern: 8 files + epidermis", len(pf), 9)
+    for k in range(8):
+        check("base", f"file {k + 1}: median area", float(pf.median_area_px[str(k + 1)]), CELL_AREA[k], .03)
+    # quarters: all four used, mean over 4
+    fe = r["feats"][r["feats"].image_file == "S.tif"]
+    check("base", "quarters used", r["img"].loc["S.tif", "quarters_used"], "1,2,3,4")
+    qm = fe[(fe.basis == "position") & (fe.scope == "quarter_mean")]
+    check("base", "quarter mean over 4 quarters", int(qm.n_quarters.iloc[0]), 4)
+    sec = fe[(fe.basis == "position") & (fe.scope == "section")]
+    check("base", "symmetric root: quarter-mean peak = section peak", float(qm.peak_pos_rel.iloc[0]),
+          float(sec.peak_pos_rel.iloc[0]), .02)
+    # diameter, lacunae
+    check("base", "root_diameter_px (kept degrees)", float(i.root_diameter_px), 2 * R_ROOT, .01)
+    check("base", "root_diameter_eq_px", float(i.root_diameter_eq_px), 2 * R_ROOT, .005)
+    check("base", "no lacunae in an intact root", int(i.n_lacunae), 0)
 
     def edit(case, fn, expect, note=""):
         """Copy the base project, edit image S with fn(npz, cells, region, mx), summarise, compare."""
@@ -295,12 +326,51 @@ def run(out_dir: Path):
     edit("10_root_without_epidermis", e10, {"root_area_px": np.pi * EDGES[-1] ** 2, "n_cortex_cells": 7 * SECT,
                                              "n_cortical_layers": 7})
 
-    # 11: aerenchyma (not built yet): tag 4 cells of layer 5 -> out of the cell counts, into aerenchyma
+    # 11: aerenchyma: 4 neighbouring cells of layer 5 gone (10-50 deg) = one lacuna; one layer-6 cell gone (205 deg)
+    # = a one-cell gap (a missed cell, review hint), not a lacuna
     def e11(npz, c, rg, m):
-        tags = [lab(c, 5, d) for d in (15, 25, 35, 45)]
-        P.save_edit(npz, aerenchyma=np.array(tags, np.int32))
-    edit("11_tag_aerenchyma", e11, {"n_cortex_cells": 284,
-                                    "aerenchyma_area_px": 4 * CELL_AREA[4]}, "feature not built yet")
+        gone = [lab(c, 5, d) for d in (15, 25, 35, 45)] + [lab(c, 6, 205)]
+        c[np.isin(c, gone)] = 0
+        P.save_edit(npz, cells=c)
+    r0, r1 = EDGES[4], EDGES[5]
+    r_bar = 2 / 3 * (r1 ** 3 - r0 ** 3) / (r1 ** 2 - r0 ** 2)          # area-weighted mean radius of the annulus
+    i11 = edit("11_aerenchyma_lacuna", e11, {"n_cortex_cells": 283, "n_lacunae": 1, "lacuna_area_px": 4 * CELL_AREA[4],
+                                             "lacuna_r_norm_mean": (r_bar - R_STELE) / (R_ROOT - R_STELE),
+                                             "n_gaps_missed_cell": 1},
+               "the one-cell gap is a missed cell, not a lacuna")
+    r11 = results(out_dir / "11_aerenchyma_lacuna")
+    a = r11["aer"][(r11["aer"].image_file == "S.tif") & (r11["aer"].lacuna_share > 0)]
+    check("11_aerenchyma_lacuna", "lacuna sits in bins 5-6 only (r_norm 0.43-0.58)", ",".join(map(str, a.bin)), "5,6")
+    lt = r11["lac"][r11["lac"].image_file == "S.tif"]
+    check("11_aerenchyma_lacuna", "lacuna inner edge (r_norm)", float(lt.r_norm_inner.iloc[0]),
+          (r0 - R_STELE) / (R_ROOT - R_STELE), .03)
+    check("11_aerenchyma_lacuna", "lacuna outer edge (r_norm)", float(lt.r_norm_outer.iloc[0]),
+          (r1 - R_STELE) / (R_ROOT - R_STELE), .03)
+    check("11_aerenchyma_lacuna", "lacuna quarter", int(lt.quarter.iloc[0]), 1)
+
+    # 11d: a tear against the stele (layer-1 cells gone over 60 deg) is not a lacuna
+    def e11d(npz, c, rg, m):
+        c[np.isin(c, [lab(c, 1, d) for d in range(185, 245, 10)] + [lab(c, 2, d) for d in range(185, 245, 10)])] = 0
+        P.save_edit(npz, cells=c)
+    edit("11d_tear_at_stele", e11d, {"n_lacunae": 0})
+
+    # 11c: big epidermal cells (4 merged into 1): the main curve (_rel, epidermis its last point) turns up at the
+    # end; the cortex-only curve (_rel_cortex) does not
+    def e11c(npz, c, rg, m):
+        e = (RR >= EDGES[-1]) & (RR < R_EPI) & (c > 0)
+        c[e] = c.max() + 1 + (TH[e] // 20).astype(int)
+        P.save_edit(npz, cells=c)
+    edit("11c_big_epidermis", e11c, {"n_cortex_cells": 288})
+    f11c = results(out_dir / "11c_big_epidermis")["feats"]
+    f11c = f11c[(f11c.image_file == "S.tif") & (f11c.basis == "position") & (f11c.scope == "section")].iloc[0]
+    check("11c_big_epidermis", "main curve turns up at the epidermis (outer_rise_rel > 0.1)",
+          bool(f11c.outer_rise_rel > 0.1), True)
+    check("11c_big_epidermis", "cortex-only curve does not (outer_rise_rel_cortex < 0.05)",
+          bool(f11c.outer_rise_rel_cortex < 0.05), True)
+
+    # 11b: a quarter with < 45 deg kept is not used for quarter features
+    i11b = edit("11b_quarter_mostly_excluded", sectors((0, 50, "torn")), {"angle_kept_deg": 310})
+    check("11b_quarter_mostly_excluded", "quarters used (Q1 has 40 deg)", i11b.quarters_used, "2,3,4")
 
     # 12: a lateral root breaking out at 70-80 deg: its cells replace the epidermis there and stick out past the
     # root outline (r 455-560). The root outline stays on the main root. None of its cells may count.

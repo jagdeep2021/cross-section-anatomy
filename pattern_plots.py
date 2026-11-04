@@ -2,7 +2,8 @@
 
 The cortex pattern (sectors, 2026-11-02): every cortical cell in the kept angles (counted by its centre), x = r_norm
 (0 = stele edge, 1 = root edge along the cell's own direction), N_BINS equal bins, MEDIAN area per bin; the epidermis
-is its own point past 1 (a different tissue: never joined to the cortex curve). Replaced one spoke per quarter, which
+is the curve's last point, one bin past the cortex (decided 2026-11-03: the pattern includes it; it is still
+tagged, and samples.xlsx says whether it was intact). Replaced one spoke per quarter, which
 on R1 was far noisier (split-half r 0.52 vs 0.87; 04_root_anatomy 12_sector_vs_spoke).
 Curves are cubic smoothing splines, smoothness by generalised cross-validation
 (scipy.interpolate.make_smoothing_spline): no assumed shape, nothing to tune.
@@ -20,7 +21,7 @@ GCOL = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]   # validated CVD-safe; ever
 INK, MUTED, GRID = "#222222", "#8a8a85", "#ebebe8"
 N_BINS = 10
 MIN_PTS = 5       # fewer points than this: no spline
-EPI_X = 1.13     # where the epidermis point is drawn (display only; its own tissue, past the cortex)
+EPI_X = 1.05     # the epidermis row's x (1 + half a bin of 10): the last point of the curve
 DECAY_WIN = 0.2   # decay slope measured over this fraction of the x-range just past the peak
 plt.rcParams.update({"font.size": 10, "font.family": "sans-serif", "axes.spines.top": False,
                      "axes.spines.right": False, "axes.edgecolor": MUTED, "axes.labelcolor": INK,
@@ -46,8 +47,10 @@ def spline(x, y, w=None, n=100, at=None):
     return xs, ys
 
 
-def profile_features(x, y, w=None) -> dict:
+def profile_features(x, y, w=None, peak_max_x=None) -> dict:
     """Plan step 2: features read off the fitted spline (NaN where undefined).
+    peak_max_x: the peak is searched only at x <= this (1.0 when the epidermis is the curve's last point, so the
+    peak is always a cortex peak and the epidermis shows up as the outer rise, the lip)
     peak_height / peak_pos   max of the curve and where it sits
     rise_slope               (peak - first value) / (peak_pos - first x); NaN if the peak is the first point
     decay_slope              slope from the peak to DECAY_WIN of the range further out (local, so a late
@@ -58,7 +61,10 @@ def profile_features(x, y, w=None) -> dict:
     if sp is None:
         return out
     xs, ys = sp
-    i = int(np.argmax(ys))
+    zone = xs <= peak_max_x + 1e-9 if peak_max_x is not None else np.ones(len(xs), bool)
+    if not zone.any():
+        return out
+    i = int(np.argmax(np.where(zone, ys, -np.inf)))
     out.update(peak_height=ys[i], peak_pos=xs[i])
     if i > 0:
         out["rise_slope"] = (ys[i] - ys[0]) / (xs[i] - xs[0])
@@ -103,23 +109,25 @@ def _curve(ax, x, y, w, color, lw=2.2, dots=True, ms=4):
 
 
 def sector_pattern(ax, prof, y_col, y_lab, color=INK, label=None, compact=False):
-    """One image's cortex pattern on ax: bin medians (dots; open = few cells), the spline through the cortex bins
-    (the curve the features come from), and the epidermis as its own square past 1, never joined to the curve.
+    """One image's cortex pattern on ax: bin medians (dots; open = few cells), the epidermis (square) as the last
+    point, and the spline through all of them (the curve the main features come from).
     prof: pipeline.sector_profile rows (+ y_col). Also drawn live by review.py and the web page."""
-    cx = prof[prof.bin != "epidermis"].dropna(subset=[y_col])
+    d = prof.dropna(subset=[y_col])
+    cx = d[d.bin != "epidermis"]
     ok = cx[~cx.few_cells]
     ax.plot(ok.x, ok[y_col], lw=0, marker="o", ms=5, color=color, alpha=0.8)
     few = cx[cx.few_cells]
     ax.plot(few.x, few[y_col], lw=0, marker="o", ms=5, mfc="none", mec=color, alpha=0.8)
-    sp = spline(cx.x, cx[y_col], cx.n_cells.where(cx.n_cells > 0))
+    sp = spline(d.x, d[y_col], d.n_cells.where(d.n_cells > 0))
     if sp is not None:
         ax.plot(*sp, color=color, lw=2.4, solid_capstyle="round", label=label)
-    e = prof[(prof.bin == "epidermis")].dropna(subset=[y_col])
-    if len(e):
-        ax.plot([EPI_X] * len(e), e[y_col], lw=0, marker="s", ms=7, color=color)
+    e = d[d.bin == "epidermis"]
+    if len(e):                                  # open square: epidermis on too few degrees (see epidermis_deg)
+        few_e = bool(e.few_cells.iloc[0]) if "few_cells" in e else False
+        ax.plot(e.x, e[y_col], lw=0, marker="s", ms=7, color=color, mfc="none" if few_e else color)
     _axes(ax, "" if compact else "Cortex, stele → epidermis", "Stele → epidermis (0-1)" if compact else
           "Radial position (0 = stele edge, 1 = root edge)", y_lab)
-    ax.set_xticks([0, 0.25, 0.5, 0.75, 1, EPI_X])
+    ax.set_xticks([0, 0.25, 0.5, 0.75, 1, EPI_X + 0.06])
     ax.set_xticklabels(["0", "0.25", "0.5", "0.75", "1", "epi"])
 
 
@@ -129,7 +137,7 @@ def image_figure(prof, y_lab, title, out):
     fig, ax = plt.subplots(figsize=(6.2, 4.4))
     sector_pattern(ax, prof, "y", y_lab)
     fig.suptitle(title, x=0.01, ha="left", fontsize=10, color=MUTED)
-    fig.text(0.01, 0.005, "Dots: median per bin (open: fewer than 5 cells). Square: epidermis, its own point.",
+    fig.text(0.01, 0.005, "Dots: median per bin (open: fewer than 5 cells). Square: epidermis, the curve's last point.",
              fontsize=8, color=MUTED)
     fig.tight_layout(rect=(0, 0.03, 1, 0.95))
     fig.savefig(out, dpi=200)
@@ -146,7 +154,7 @@ def group_figure(pip, group_col, species, y_col, y_lab, out, note=""):
     ends = []
     for g, d in plant.groupby(group_col):
         c = GCOL[groups.index(g) % len(GCOL)]
-        cx, ep = d[d.bin != "epidermis"], d[d.bin == "epidermis"]
+        cx, ep = d, d[d.bin == "epidermis"]                      # the curve runs through the epidermis point
         for _, p in cx.groupby("plant"):
             sp = spline(p.x_position, p[y_col])
             if sp is not None:
@@ -164,16 +172,16 @@ def group_figure(pip, group_col, species, y_col, y_lab, out, note=""):
                 ends.append((*e, f"{g}  (n = {d.plant.nunique()})"))
         em = ep[y_col].dropna()
         if len(em):
-            ax.errorbar(EPI_X + 0.012 * groups.index(g), em.mean(),
+            ax.errorbar(EPI_X + 0.008 * groups.index(g), em.mean(),
                         yerr=em.std() / np.sqrt(len(em)) if len(em) > 1 else None, fmt="s", ms=7, color=c, capsize=3)
     _axes(ax, "", "Radial position (0 = stele edge, 1 = root edge)", y_lab)
     ax.set_xlim(0, 1.3)
-    ax.set_xticks([0, 0.25, 0.5, 0.75, 1, EPI_X])
+    ax.set_xticks([0, 0.25, 0.5, 0.75, 1, EPI_X + 0.06])
     ax.set_xticklabels(["0", "0.25", "0.5", "0.75", "1", "epi"])
     _end_labels(ax, ends, 10)
     fig.suptitle(species, x=0.01, ha="left", fontsize=13, fontweight="bold", color=INK)
     fig.text(0.01, 0.005, "Bold: spline through plant means (dots), band ± 1 SE across plants (bins with ≥ 3 plants). "
-             f"Thin: one plant. Square: epidermis.{note}", fontsize=8, color=MUTED)
+             f"Thin: one plant. Square: epidermis (the curve's last point).{note}", fontsize=8, color=MUTED)
     fig.tight_layout(rect=(0, 0.04, 1, 1))
     fig.savefig(out, dpi=200)
     plt.close(fig)

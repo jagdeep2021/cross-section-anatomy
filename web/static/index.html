@@ -432,30 +432,41 @@ function draw() {
     ctx.stroke(); ctx.setLineDash([]);
   }
 }
-function drawSectors() {                          // as in the desktop app: excluded arcs as grey wedges + reason;
-  const { s, x, y } = S.view, { centre: [cy, cx], arcs } = S.sectors;   // while dragging a sector: its two edges
-  const L = Math.max(S.gray.width, S.gray.height), R = 0.42 * Math.min(S.gray.width, S.gray.height);
+function drawSectors() {                          // as in the desktop app: excluded arcs grey on the cortex only
+  const { s, x, y } = S.view, { centre: [cy, cx], arcs, rst, rrt } = S.sectors;   // (stele edge -> root edge),
+  const L = Math.max(S.gray.width, S.gray.height);                                  // reason at the middle;
+  const deg = t => ((Math.round(t) % 360) + 360) % 360;                             // quarter lines + Q1-Q4
+  const rIn = t => rst ? rst[deg(t)] : 0, rOut = t => rrt ? rrt[deg(t)] : L;
   const at = (t, r) => [x + (cx + r * Math.cos(t * Math.PI / 180)) * s, y + (cy - r * Math.sin(t * Math.PI / 180)) * s];
   const ang = ([py, px]) => ((Math.atan2(-(py - cy), px - cx) * 180 / Math.PI) + 360) % 360;
   ctx.save(); ctx.globalAlpha = +$("opMasks").value;
-  ctx.beginPath(); ctx.rect(x, y, S.gray.width * s, S.gray.height * s); ctx.clip();   // wedges stop at the image edge
-  const wedge = (a0, span, fill) => {
-    ctx.beginPath(); ctx.moveTo(...at(0, 0));
-    for (let k = 0; k <= 36; k++) ctx.lineTo(...at(a0 + span * k / 36, L));
+  ctx.beginPath(); ctx.rect(x, y, S.gray.width * s, S.gray.height * s); ctx.clip();   // bands stop at the image edge
+  const band = (a0, span, fill) => {
+    const n = Math.max(3, Math.round(span / 2));
+    ctx.beginPath();
+    for (let k = 0; k <= n; k++) { const t = a0 + span * k / n; k ? ctx.lineTo(...at(t, rOut(t))) : ctx.moveTo(...at(t, rOut(t))); }
+    for (let k = n; k >= 0; k--) { const t = a0 + span * k / n; ctx.lineTo(...at(t, rIn(t))); }
     ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
     ctx.strokeStyle = "rgba(255,255,255,0.8)"; ctx.lineWidth = 1; ctx.stroke();
   };
   ctx.font = "600 13px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.strokeStyle = "rgba(255,255,255,0.6)"; ctx.lineWidth = 1;
+  for (const [q, a] of [[1, 0], [2, 90], [3, 180], [4, 270]]) {
+    ctx.beginPath(); ctx.moveTo(...at(a, rIn(a))); ctx.lineTo(...at(a, rOut(a))); ctx.stroke();
+    const [qx, qy] = at(a + 45, rOut(a + 45) * 1.06);
+    ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(qx - 13, qy - 9, 26, 18);
+    ctx.fillStyle = "#fff"; ctx.fillText(`Q${q}`, qx, qy);
+  }
   for (const [a0, a1, why] of arcs) {
     const span = ((a1 - a0) % 360 + 360) % 360 || 360;
-    wedge(a0, span, "rgba(128,128,128,0.5)");
-    const [lx, ly] = at(a0 + span / 2, R), txt = `${why} (${Math.round(span)}°)`;
+    band(a0, span, "rgba(128,128,128,0.5)");
+    const tm = a0 + span / 2, [lx, ly] = at(tm, (rIn(tm) + rOut(tm)) / 2), txt = `${why} (${Math.round(span)}°)`;
     ctx.fillStyle = "rgba(0,0,0,0.6)"; const w = ctx.measureText(txt).width + 10; ctx.fillRect(lx - w / 2, ly - 10, w, 20);
     ctx.fillStyle = "#fff"; ctx.fillText(txt, lx, ly);
   }
   if (S.pen && S.pen.moved && S.target === "Sectors" && !S.pen.remove && S.pen.pts.length > 1) {   // the arc to come:
     const t0 = ang(S.pen.pts[0]), t1 = ang(S.pen.pts[S.pen.pts.length - 1]), d = ((t1 - t0) % 360 + 360) % 360;
-    if (Math.min(d, 360 - d) >= 2) d <= 180 ? wedge(t0, d, "rgba(255,90,90,0.25)") : wedge(t1, 360 - d, "rgba(255,90,90,0.25)");
+    if (Math.min(d, 360 - d) >= 2) d <= 180 ? band(t0, d, "rgba(255,90,90,0.25)") : band(t1, 360 - d, "rgba(255,90,90,0.25)");
   }
   ctx.restore();
 }
