@@ -87,6 +87,8 @@
   .tools button i { width:10px; height:10px; border-radius:50%; flex:0 0 10px; }
   .tools button kbd { margin-left:auto; font:11px system-ui; color:var(--muted); }
   .tools button.on { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+  #filesBtn.on { background:linear-gradient(90deg,#30123b,#28bbec,#a2fc3c,#fb8022,#7a0403); color:#fff; border-color:#888; }
+  #aerBtn.on { background:#ff8c00; color:#111; border-color:#ff8c00; }
   .tools button.on kbd { color:inherit; opacity:.7; }
   .tip { font-size:12px; color:var(--ink); margin-top:8px; min-height:2.9em; }
   .keys { font-size:11.5px; color:var(--muted); margin-top:4px; line-height:1.6; }
@@ -167,7 +169,7 @@
 <main id="view">
   <canvas id="cv"></canvas>
   <div class="empty" id="empty">Pick a project, add images, then Outline new images.</div>
-  <div class="hint"><span>drag = draw · click = add · ⌘/Ctrl = remove · Space-drag = move · scroll = zoom · F = fit · O = outlines · , . = images · Shift-S = save + next</span></div>
+  <div class="hint"><span>drag = draw · click = add · ⌘/Ctrl = remove · Space-drag = move · scroll = zoom · F = fit · O = outlines · Shift-A = aerenchyma · Shift-F = cell files · , . = images · Shift-S = save + next</span></div>
 </main>
 
 <section class="side" style="border-top:0">
@@ -186,6 +188,8 @@
   <div class="row view"><span style="width:44px">Cells</span><input type="range" id="opCells" min="0" max="1" step="0.05" value="1" title="Cell outlines">
     <button id="fitBtn" title="Fit the image (F)">Fit</button></div>
   <div class="row view"><span style="width:44px">Masks</span><input type="range" id="opMasks" min="0" max="1" step="0.05" value="1" title="Root, stele, vessels, excluded sectors"><span style="width:36px"></span></div>
+  <div class="row view"><button id="aerBtn" class="on" title="Show / hide the aerenchyma lacunae Make results counts (Shift-A)">Aerenchyma</button>
+    <button id="filesBtn" title="Colour cells by cell file number, 1 (next to the stele, blue) to 15+ (red); same scale on every image (Shift-F)">Cell files</button></div>
   <div class="msg" id="editMsg"></div>
 
   <section>
@@ -202,7 +206,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const S = { project: null, images: [], i: -1, gray: null, ov: null, poll: null,
-            view: { s: 1, x: 0, y: 0 }, showOv: true, target: "Stele", pen: null, pan: null, space: false, saving: false };
+            view: { s: 1, x: 0, y: 0 }, showOv: true, showAer: true, showFiles: false, target: "Stele", pen: null, pan: null, space: false, saving: false };
 
 async function api(path, opt = {}) {
   const r = await fetch(path, opt);
@@ -355,13 +359,15 @@ async function show(k) {
   const fresh = !S.gray;
   S.gray = await load(`${base}/image/gray${q}`);
   const out = im.status === "not measured";
-  [S.ovC, S.ovM] = await Promise.all(["cells", "masks"].map(k => out ? null : load(`${base}/image/${k}${q}`).catch(() => null)));
+  [S.ovC, S.ovM, S.ovL, S.ovF] = await Promise.all(["cells", "masks", "lacunae", "files"].map(k => out ? null : load(`${base}/image/${k}${q}`).catch(() => null)));
   if (gone()) return;
   if (fresh || k !== S.shown) fit();               // a new image opens fitted; an edit keeps the zoom
   S.shown = k;
   S.sectors = null;
   draw();
-  if (im.status !== "not measured") S.sectors = (await api(`${base}/traits${q}`).catch(() => ({}))).sectors ?? null;
+  const tr = im.status !== "not measured" ? await api(`${base}/traits${q}`).catch(() => ({})) : {};
+  S.sectors = tr.sectors ?? null;
+  $("aerBtn").textContent = tr.n_lacunae ? `Aerenchyma · ${tr.n_lacunae} (${(100 * tr.aerenchyma_share).toFixed(1)}%)` : "Aerenchyma · none";
   if (gone()) return;
   draw();
   imgFigure();
@@ -421,8 +427,10 @@ function draw() {
   const { s, x, y } = S.view;
   ctx.imageSmoothingEnabled = s < 1;
   ctx.drawImage(S.gray, x, y, S.gray.width * s, S.gray.height * s);
+  if (S.ovF && S.showOv && S.showFiles) ctx.drawImage(S.ovF, x, y, S.ovF.width * s, S.ovF.height * s);   // under the outlines
   for (const [ov, op] of [[S.ovC, "opCells"], [S.ovM, "opMasks"]])   // cells and masks fade separately
     if (ov && S.showOv) { ctx.globalAlpha = +$(op).value; ctx.drawImage(ov, x, y, ov.width * s, ov.height * s); ctx.globalAlpha = 1; }
+  if (S.ovL && S.showOv && S.showAer) ctx.drawImage(S.ovL, x, y, S.ovL.width * s, S.ovL.height * s);
   if (S.sectors && S.showOv) drawSectors();
   if (S.pen && S.pen.moved && S.pen.pts.length > 1) {   // the outline being drawn (image px -> screen)
     ctx.beginPath();
@@ -544,6 +552,10 @@ cv.addEventListener("pointerup", () => {
 cv.addEventListener("contextmenu", e => e.preventDefault());   // Ctrl-click on a Mac must not open a menu
 new ResizeObserver(() => { if (S.gray) fit(); draw(); }).observe(cv);   // the image area changed size: refit
 $("opCells").oninput = $("opMasks").oninput = draw;
+function toggleAer() { S.showAer = !S.showAer; $("aerBtn").classList.toggle("on", S.showAer); draw(); }
+$("aerBtn").onclick = toggleAer;
+function toggleFiles() { S.showFiles = !S.showFiles; $("filesBtn").classList.toggle("on", S.showFiles); draw(); }
+$("filesBtn").onclick = toggleFiles;
 $("fitBtn").onclick = () => { if (S.gray) { fit(); draw(); } };
 const KEYS = { 1: "Cell", 2: "Metaxylem", 3: "Stele", 4: "Sectors", 5: "Root" };
 addEventListener("keydown", e => {
@@ -553,7 +565,9 @@ addEventListener("keydown", e => {
   if (e.key === "ArrowLeft" || e.key === ",") show(S.i - 1).catch(showErr);
   if (e.key === "S" && e.shiftKey) saveNext();
   if (e.key === "o" || e.key === "O") { S.showOv = !S.showOv; draw(); }
-  if ((e.key === "f" || e.key === "F") && S.gray) { fit(); draw(); }
+  if (e.key === "A" && e.shiftKey) toggleAer();
+  if (e.key === "F" && e.shiftKey) { toggleFiles(); return; }
+  if ((e.key === "f" || e.key === "F") && !e.shiftKey && S.gray) { fit(); draw(); }
   if (KEYS[e.key]) setTarget(KEYS[e.key]);
 });
 addEventListener("keyup", e => { if (e.key === " ") { S.space = false; if (!S.pan) cv.classList.remove("pan"); } });

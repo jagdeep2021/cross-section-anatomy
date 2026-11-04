@@ -122,6 +122,44 @@ def sector_pattern(ax, prof, y_col, y_lab, color=INK, label=None, compact=False)
           "Radial position (0 = stele edge, 1 = root edge)", y_lab)
 
 
+def live_pattern(ax, props, arcs, um_per_px, n_bins):
+    """The editors' live plot, the same in the web and the desktop: the section (black, dots + spline) and each
+    quarter with >= MIN_QUARTER_DEG kept (thin, coloured, named at its end): the scopes Make results reports.
+    props: after exclude_sectors. Areas in µm² when the image has a scale, else px."""
+    import pipeline as P
+    um = not np.isnan(um_per_px)
+    s2 = um_per_px ** 2 if um else 1
+    y_lab = "Cell area (µm²)" if um else "Cell area (px)"
+    q_of = P.quarter_of(np.degrees(props.angle_rad)) if len(props) else np.array([])
+    for q, *_ in P.QUARTERS:
+        if P.quarter_kept_deg(arcs, q) < P.MIN_QUARTER_DEG:
+            continue
+        d = P.sector_profile(props[q_of == q], n_bins).assign(y=lambda t: t.median_area_px * s2).dropna(subset=["y"])
+        sp = spline(d.x, d.y, d.n_cells.where(d.n_cells > 0))
+        if sp is not None:
+            ax.plot(*sp, color=GCOL[q - 1], lw=1.2, alpha=0.9)
+            ax.text(sp[0][-1], sp[1][-1], f" Q{q}", color=GCOL[q - 1], fontsize=7, va="center")
+    prof = P.sector_profile(props, n_bins)
+    sector_pattern(ax, prof.assign(y=prof.median_area_px * s2), "y", y_lab, compact=True)
+    ax.tick_params(labelsize=7)
+    ax.xaxis.label.set_size(8), ax.yaxis.label.set_size(8)
+
+
+FILE_MAX = 15   # file colours: one fixed scale for every image (1 = next to the stele); beyond 15 = the top colour
+
+
+def file_rgba(cells, files, alpha: int = 150) -> np.ndarray:
+    """Cells coloured by cell file number (pipeline.cell_files: label -> file), the same in the web and the desktop.
+    Unnumbered cells (stele, excluded arcs) stay clear."""
+    cmap = plt.get_cmap("turbo")
+    lut = np.zeros((int(cells.max()) + 1, 4), np.uint8)
+    for lab, f in files.items():
+        if np.isfinite(f):
+            r, g, b, _ = cmap((min(round(f), FILE_MAX) - 1) / (FILE_MAX - 1))
+            lut[int(lab)] = (int(255 * r), int(255 * g), int(255 * b), alpha)
+    return lut[cells]
+
+
 # ---------------------------------------------------------------- figures
 def image_figure(prof, y_lab, title, out):
     """One image's cortex pattern (prof: sector_profile with a y column)."""

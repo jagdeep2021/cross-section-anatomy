@@ -42,6 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pipeline as P      # noqa: E402
 import run_batch as RB    # noqa: E402
 import summarise as SUM   # noqa: E402
+import pattern_plots as PP   # noqa: E402
 
 DATA = Path(os.environ.get("CSA_DATA", Path(__file__).resolve().parent.parent / "web_data")).resolve()
 STATIC = Path(__file__).resolve().parent / "static"
@@ -230,7 +231,17 @@ def gray_png(d: Path, rel: str) -> Path:
 
 
 OVERLAY = {"cell": (80, 255, 120, 200), "root": (255, 220, 0, 255), "stele": (0, 220, 255, 255),
-           "mx": (255, 60, 60, 110), "lacuna": (255, 140, 0, 120), "stele_fill": (0, 220, 255, 85)}
+           "mx": (255, 60, 60, 110), "lacuna": (255, 140, 0, 150), "lacuna_edge": (255, 140, 0, 255), "stele_fill": (0, 220, 255, 85)}
+
+
+def _live(d: Path, npz: Path):
+    """What every live view starts from: masks, centre, excluded arcs, and the kept cells (props after the arcs)."""
+    cells, region, mx, status = P.load_state(npz)
+    settings = json.loads((d / "anatomy" / "settings.json").read_text())
+    centre = P.centre_of(region, P.load_centre(npz))
+    arcs = P.load_sectors(npz, float(settings.get("quadrant_angle_deg", 0)))
+    props, _, tr = P.derive(cells, region, mx, 0, centre)
+    return cells, region, mx, status, centre, arcs, P.exclude_sectors(props, arcs), tr
 
 
 def overlay_png(d: Path, rel: str, part: str) -> Path:
@@ -246,14 +257,19 @@ def overlay_png(d: Path, rel: str, part: str) -> Path:
     rgba = np.zeros((*cells.shape, 4), np.uint8)
     if part == "cells":
         rgba[find_boundaries(cells, mode="inner") & (cells > 0)] = OVERLAY["cell"]
+    elif part == "lacunae":                            # aerenchyma lacunae as Make results finds them (kept angles)
+        if (region == 2).any():
+            *_, centre, arcs, props, _ = _live(d, npz)
+            lac = P.lacunae(cells, region, mx, props, centre, arcs, mask=True)[3] > 0
+            rgba[lac] = OVERLAY["lacuna"]
+            w = max(2, round(max(cells.shape) / 600))
+            rgba[ndi.binary_dilation(find_boundaries(lac, mode="inner") & lac, iterations=w) & lac] = OVERLAY["lacuna_edge"]
+    elif part == "files":                              # cells coloured by cell file number (pattern_plots.file_rgba)
+        if (region == 2).any():
+            *_, centre, arcs, props, _ = _live(d, npz)
+            rgba = PP.file_rgba(cells, P.cell_files(cells, props, centre, arcs, region=region).file)
     else:
         rgba[region == 2] = OVERLAY["stele_fill"]      # the stele is an area: lightly shaded, its cells still visible
-        if (region == 2).any():                        # aerenchyma lacunae as Make results finds them (kept angles)
-            settings = json.loads((d / "anatomy" / "settings.json").read_text())
-            centre = P.centre_of(region, P.load_centre(npz))
-            arcs = P.load_sectors(npz, float(settings.get("quadrant_angle_deg", 0)))
-            props = P.exclude_sectors(P.derive(cells, region, mx, 0, centre)[0], arcs)
-            rgba[P.lacunae(cells, region, mx, props, centre, arcs, mask=True)[3] > 0] = OVERLAY["lacuna"]
         rgba[mx > 0] = OVERLAY["mx"]
         w = max(2, round(max(cells.shape) / 600))      # root and stele edges thick enough to see on a whole-image view
         edge = lambda m: ndi.binary_dilation(find_boundaries(m, mode="inner") & m, iterations=w) & m
@@ -429,7 +445,7 @@ def image(name: str, kind: str, rel: str, u: dict = Depends(user)):
     rel = _safe_rel(rel).as_posix()
     if kind == "gray":
         return FileResponse(gray_png(d, rel), headers={"Cache-Control": "no-cache"})
-    if kind in ("cells", "masks"):
+    if kind in ("cells", "masks", "lacunae", "files"):
         if not (d / "anatomy" / "masks" / f"{RB.image_key(Path(rel))}.npz").exists():
             raise HTTPException(404, "Not measured yet")
         return FileResponse(overlay_png(d, rel, kind), headers={"Cache-Control": "no-cache"})
@@ -443,12 +459,7 @@ def traits(name: str, rel: str, u: dict = Depends(user)):
     npz = d / "anatomy" / "masks" / f"{RB.image_key(Path(_safe_rel(rel)))}.npz"
     if not npz.exists():                         # not measured yet, or the project was just deleted
         raise HTTPException(404, "Not measured yet")
-    cells, region, mx, status = P.load_state(npz)
-    settings = json.loads((d / "anatomy" / "settings.json").read_text())
-    centre = P.centre_of(region, P.load_centre(npz))
-    arcs = P.load_sectors(npz, float(settings.get("quadrant_angle_deg", 0)))
-    props, _, tr = P.derive(cells, region, mx, 0, centre)
-    props = P.exclude_sectors(props, arcs)
+    cells, region, mx, status, centre, arcs, props, tr = _live(d, npz)
     tr.update(P.sector_traits(cells, region, props, centre, arcs))   # cortex: kept angles; stele, vessels: whole
     lac, _, n_gaps = P.lacunae(cells, region, mx, props, centre, arcs)
     tr.update(P.lacuna_traits(lac, n_gaps, tr["cortex_area_kept_px"]))
@@ -466,8 +477,8 @@ def traits(name: str, rel: str, u: dict = Depends(user)):
 
 @app.get("/api/projects/{name}/pattern")
 def pattern(name: str, rel: str, u: dict = Depends(user)):
-    """This image's cortex pattern, live from its current masks (review.py's live plot): kept cortical cells, median
-    area per radial bin, the epidermis its own point. Redrawn when the mask, its sectors or the scale change."""
+    """This image's cortex pattern, live from its current masks (pattern_plots.live_pattern, as review.py): the section
+    and each quarter kept. Redrawn when the mask, its sectors, the scale or the code change."""
     import matplotlib.pyplot as plt
     import pattern_plots as PP
     d = _project(u, name)
@@ -480,20 +491,9 @@ def pattern(name: str, rel: str, u: dict = Depends(user)):
     samples = d / "anatomy" / "samples.xlsx"
     newest = max(npz.stat().st_mtime, samples.stat().st_mtime if samples.exists() else 0)
     if not f.exists() or f.stat().st_mtime < newest:
-        cells, region, mx, _ = P.load_state(npz)
-        settings = json.loads((d / "anatomy" / "settings.json").read_text())
-        centre = P.centre_of(region, P.load_centre(npz))
-        arcs = P.load_sectors(npz, float(settings.get("quadrant_angle_deg", 0)))
-        props = P.exclude_sectors(P.derive(cells, region, mx, 0, centre)[0], arcs)
-        prof = P.sector_profile(props, SUM.N_BINS)
-        sc = P.um_per_px(d / "anatomy", rel)
-        um = not np.isnan(sc)
-        sc = sc if um else 1
+        *_, arcs, props, _ = _live(d, npz)
         fig, ax = plt.subplots(figsize=(3.4, 2.8), dpi=150, layout="constrained")
-        PP.sector_pattern(ax, prof.assign(y=prof.median_area_px * sc * sc), "y",
-                          "Cell area (µm²)" if um else "Cell area (px)", compact=True)
-        ax.tick_params(labelsize=7)
-        ax.xaxis.label.set_size(8), ax.yaxis.label.set_size(8)
+        PP.live_pattern(ax, props, arcs, P.um_per_px(d / "anatomy", rel), SUM.N_BINS)
         fig.savefig(f)
         plt.close(fig)
     return FileResponse(f, headers={"Cache-Control": "no-cache"})
