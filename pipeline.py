@@ -398,18 +398,23 @@ def ray_layers(cells, region, props, centre, theta_deg: float) -> int:
 
 
 # ---------------------------------------------------------------- cell files (decided with Jagdeep 2026-11-03)
-# Cortical cell file number per cell, from the same kind of rays that count CCFN: along each ray (every
-# FILE_STEP_DEG in the kept angles) the cortical cells are numbered 1, 2 ... from the stele out; a cell's file is the
+# Cell file number per cell, from the same kind of rays that count CCFN: along each ray (every
+# FILE_STEP_DEG in the kept angles) the cortical and epidermal cells are numbered 1, 2 ... from the stele out; a cell's file is the
 # median of the numbers its rays gave it (file_rel: median of (k - 0.5) / n, n = cortical cells on that ray). A missed
 # or merged cell renumbers the files outside it on that ray only; the median over many rays absorbs it, and
 # n_cortical_layers_min / _max show when it can't.
 FILE_STEP_DEG = 0.5
+# The pattern = every cell outside the endodermis (decided with Jagdeep 2026-11-03): the epidermis is the outer part of
+# the same tissue, binned by position like any cell, peak anywhere (as in Tyler's maize-cells, which never split it
+# out; and "epidermis" here is a position tag, not a cell type). _rel_cortex = the same without the tagged cells.
+PATTERN_TISSUES = ("cortex", "epidermis")
 
 
-def cell_files(cells, props, centre, arcs=(), step: float = FILE_STEP_DEG) -> pd.DataFrame:
-    """index label -> file (median number, 1 = next to the stele), file_rel (0-1), n_rays. props: after
-    exclude_sectors (only kept cortex is numbered)."""
-    cortex = set(props.label[props.tissue == "cortex"].astype(int))
+def cell_files(cells, props, centre, arcs=(), step: float = FILE_STEP_DEG, tissues=PATTERN_TISSUES) -> pd.DataFrame:
+    """index label -> file (median number, 1 = next to the stele; the epidermis is the outermost file), file_rel
+    (0-1), n_rays. props: after exclude_sectors (only kept cells are numbered). CCFN (n_cortical_layers) stays
+    cortex only."""
+    cortex = set(props.label[props.tissue.isin(tissues)].astype(int))
     nums, rels = {}, {}
     for t in np.arange(step / 2, 360, step):
         if arcs and in_arcs([t], arcs)[0]:
@@ -436,7 +441,7 @@ SECTOR_REASONS = ("torn", "folded", "smeared / oblique", "out of focus", "debris
 SECTOR_TISSUES = ("cortex", "epidermis", "air_space", "unassigned")
 MIN_KEPT_DEG = 45          # below this the image is flagged low_coverage
 MIN_CELLS_PER_BIN = 5      # a profile bin with fewer cortical cells is flagged
-MIN_EPI_DEG = 90           # epidermis point flagged (few_cells) when epidermal cells cover fewer kept degrees: Cellpose
+MIN_EPI_DEG = 90           # epidermis_deg below this = the outer bins rest on hypodermis more than epidermis: Cellpose
                            # often misses the epidermis (Hallie's auto masks 2026-11-03: 25-300 of 360 deg covered)
 
 
@@ -553,38 +558,34 @@ def sector_traits(cells, region, props, centre, arcs) -> dict:
             "epidermis_deg": epidermis_deg(props, arcs)}
 
 
-def sector_profile(props, n_bins: int = 10, ref=None, by: str = "position", n_files=None) -> pd.DataFrame:
-    """The cortex pattern from every kept cortical cell, then the epidermis as the last row (bin = 'epidermis').
+def sector_profile(props, n_bins: int = 10, ref=None, by: str = "position", n_files=None,
+                   tissues=PATTERN_TISSUES) -> pd.DataFrame:
+    """The pattern from every kept cell of `tissues` (default: cortex + epidermis, one tissue).
     by = "position": r_norm in n_bins equal bins (1 = next to the stele; r_norm is normalised along each cell's own
          direction, so an uneven cortex is not mixed across layers); x = bin centre.
-    by = "file": one row per cell file (props.file rounded; 1 = next to the stele); x = (file - 0.5) / n_files.
-    Median cell area per row, n per row; the epidermis sits one step past the cortex (x = 1 + half a step).
-    rel = median / ref (default: the median of these cortical cells; pass the section's for a quarter).
-    props: after exclude_sectors (and with file columns for by="file")."""
-    c = props[props.tissue == "cortex"]
+    by = "file": one row per cell file (props.file rounded; 1 = next to the stele; the epidermis is the outermost
+         file); x = the median file_rel of its cells (0-1).
+    Median cell area per row, n per row; rel = median / ref (default: the median of these cells; pass the section's
+    for a quarter). props: after exclude_sectors (and with file columns for by="file"). n_files: unused (kept for
+    old callers)."""
+    c = props[props.tissue.isin(tissues)]
     med = (c.area_px.median() if len(c) else np.nan) if ref is None else ref
     if by == "file":
         c = c.dropna(subset=["file"])
         k = np.floor(c.file + 0.5).astype(int)
         top = int(k.max()) if len(k) else 0
-        n = float(n_files) if n_files and np.isfinite(n_files) and n_files > 0 else max(top, 1)
-        g = c.area_px.groupby(k).agg(["median", "size"]).reindex(range(1, top + 1))
-        rows = [{"bin": str(i), "x": (i - 0.5) / n, "n_cells": int(0 if pd.isna(r["size"]) else r["size"]),
+        g = c.groupby(k).agg(median=("area_px", "median"), size=("area_px", "size"), x=("file_rel", "median"))
+        g = g.reindex(range(1, top + 1))
+        rows = [{"bin": str(i), "x": r["x"], "n_cells": int(0 if pd.isna(r["size"]) else r["size"]),
                  "median_area_px": r["median"]} for i, r in g.iterrows()]
-        epi_x = 1 + 0.5 / n
     else:
         b = (np.clip(c.r_norm, 0, 0.999) * n_bins).astype(int) + 1
         g = c.area_px.groupby(b).agg(["median", "size"]).reindex(range(1, n_bins + 1))
         rows = [{"bin": str(k), "x": (k - 0.5) / n_bins, "n_cells": int(0 if pd.isna(r["size"]) else r["size"]),
                  "median_area_px": r["median"]} for k, r in g.iterrows()]
-        epi_x = 1 + 0.5 / n_bins
-    e = props[props.tissue == "epidermis"]
-    rows.append({"bin": "epidermis", "x": epi_x, "n_cells": len(e),
-                 "median_area_px": e.area_px.median() if len(e) else np.nan})
-    d = pd.DataFrame(rows)
+    d = pd.DataFrame(rows, columns=["bin", "x", "n_cells", "median_area_px"])
     d["rel"] = d.median_area_px / med
-    d["few_cells"] = (d.n_cells < MIN_CELLS_PER_BIN) & (d.bin != "epidermis")
-    d.loc[d.bin == "epidermis", "few_cells"] = epidermis_deg(props) < MIN_EPI_DEG * (1 if ref is None else 0.25)
+    d["few_cells"] = d.n_cells < MIN_CELLS_PER_BIN
     return d
 
 

@@ -93,7 +93,9 @@ EXPECT = {
     "cortex_area_kept_px": np.pi * (R_ROOT ** 2 - R_STELE ** 2), "root_area_est_px": np.pi * R_ROOT ** 2,
     "n_cortex_cells_est": 8 * SECT,
 }
-MED_CORTEX = float(np.median(np.repeat(CELL_AREA, SECT)))     # the reference for rel
+MED_CORTEX = float(np.median(np.repeat(CELL_AREA, SECT)))
+EPI_AREA0 = np.pi * (475 ** 2 - 455 ** 2) / 72
+MED_TISSUE = float(np.median(np.r_[np.repeat(CELL_AREA, SECT), np.repeat(EPI_AREA0, 72)]))   # the reference for rel
 EPI_AREA = ann_area(EDGES[-1], R_EPI, 72)
 TOL = {"root_area_px": .005, "stele_area_px": .01, "cortex_area_px": .005, "cortex_width_px": .01,
        "mean_cortex_cell_area_px": .02, "mx_mean_area_px": .04, "cortex_area_kept_px": .005,
@@ -166,10 +168,10 @@ def run(out_dir: Path):
     check("base", "plant mean = mean of its 2 images", float(r["plant"].n_cortex_cells.iloc[0]),
           float(r["img"].n_cortex_cells.mean()), 1e-9)
     f = r["prof"][r["prof"].image_file == "S.tif"].set_index("bin")
-    check("base", "profile: cortex cells over the bins", int(f.n_cells.drop("epidermis").sum()), 8 * SECT)
-    check("base", "profile: epidermis its own point (cells)", int(f.n_cells["epidermis"]), 72)
-    check("base", "profile: epidermis median area", float(f.median_area_px["epidermis"]), EPI_AREA, .03)
-    check("base", "epidermis_rel = epidermis / cortex median", float(i.epidermis_rel), EPI_AREA / MED_CORTEX, .03)
+    check("base", "profile: cortex + epidermis cells over the bins", int(f.n_cells.sum()), 8 * SECT + 72)
+    check("base", "profile: epidermis is the outermost bin (10), alone", int(f.n_cells["10"]), 72)
+    check("base", "profile: bin 10 median area = epidermis cell", float(f.median_area_px["10"]), EPI_AREA, .03)
+    check("base", "epidermis_rel = epidermis / tissue median", float(i.epidermis_rel), EPI_AREA / MED_TISSUE, .03)
     for k in range(8):                                        # layer k's cells land in the bin of their r_norm
         r_mid = (EDGES[k] + EDGES[k + 1]) / 2
         b = str(int(min((r_mid - R_STELE) / (R_ROOT - R_STELE), 0.999) * SUM.N_BINS) + 1)
@@ -180,9 +182,12 @@ def run(out_dir: Path):
     layer_true = np.searchsorted(EDGES, ac.r_px.values, side="right")
     check("base", "file number = layer, every cortical cell", float((np.floor(ac.file + 0.5) == layer_true).mean()), 1.0)
     check("base", "every cortical cell has a file number", int(ac.file.notna().sum()), 8 * SECT)
+    ae = r["cells"][(r["cells"].image_file == "S.tif") & (r["cells"].tissue == "epidermis")]
+    check("base", "every epidermal cell is file 9", float((np.floor(ae.file + 0.5) == 9).mean()), 1.0)
     pf = r["prof_all"][(r["prof_all"].image_file == "S.tif") & (r["prof_all"].basis == "file")
                        & (r["prof_all"].scope == "section")].set_index("bin")
-    check("base", "file pattern: 8 files + epidermis", len(pf), 9)
+    check("base", "file pattern: 8 cortex files + the epidermis file", len(pf), 9)
+    check("base", "file 9 = the epidermis", float(pf.median_area_px["9"]), EPI_AREA, .03)
     for k in range(8):
         check("base", f"file {k + 1}: median area", float(pf.median_area_px[str(k + 1)]), CELL_AREA[k], .03)
     # quarters: all four used, mean over 4
@@ -257,7 +262,7 @@ def run(out_dir: Path):
           "cortex_width_px": R_ROOT - R_STELE, "cortex_area_kept_px": 0.75 * ca, "cortex_area_est_px": ca,
           "root_area_est_px": EXPECT["root_area_px"], "n_cortex_cells_est": 288,
           "stele_share_est": R_STELE ** 2 / R_ROOT ** 2, "low_coverage": 0,
-          "mean_cortex_cell_area_px": EXPECT["mean_cortex_cell_area_px"], "epidermis_rel": EPI_AREA / MED_CORTEX},
+          "mean_cortex_cell_area_px": EXPECT["mean_cortex_cell_area_px"], "epidermis_rel": EPI_AREA / MED_TISSUE},
          "stele + vessels whole; cortex from 3/4; _est back to the whole")
 
     # 6: an old project: dropped quarter 3 (before sectors) reads as the same 90 degree arc
@@ -293,8 +298,8 @@ def run(out_dir: Path):
     # 6g: excluded epidermis leaves the epidermis point; excluded cells stay in all_cells, tagged
     d = out_dir / "06_old_dropped_quarter"
     r6 = results(d)
-    pe = r6["prof"][(r6["prof"].image_file == "S.tif") & (r6["prof"].bin == "epidermis")]
-    check("06g_excluded_cells", "epidermis point: kept cells only", int(pe.n_cells.iloc[0]), 54)
+    pe = r6["prof"][(r6["prof"].image_file == "S.tif") & (r6["prof"].bin == "10")]
+    check("06g_excluded_cells", "outer bin (epidermis): kept cells only", int(pe.n_cells.iloc[0]), 54)
     ac = r6["cells"][r6["cells"].image_file == "S.tif"]
     check("06g_excluded_cells", "all_cells keeps excluded cortex, tagged", int((ac.tissue == "cortex_excluded").sum()), 72)
     check("06g_excluded_cells", "stele never excluded", int(ac.tissue.astype(str).str.startswith("stele_").sum()), 0)
@@ -354,8 +359,8 @@ def run(out_dir: Path):
         P.save_edit(npz, cells=c)
     edit("11d_tear_at_stele", e11d, {"n_lacunae": 0})
 
-    # 11c: big epidermal cells (4 merged into 1): the main curve (_rel, epidermis its last point) turns up at the
-    # end; the cortex-only curve (_rel_cortex) does not
+    # 11c: big epidermal cells (4 merged into 1): in the main curve (_rel, epidermis part of the tissue) the outer
+    # end rises above the cortex peak, so the peak sits at the edge; without the tagged cells (_rel_cortex) it does not
     def e11c(npz, c, rg, m):
         e = (RR >= EDGES[-1]) & (RR < R_EPI) & (c > 0)
         c[e] = c.max() + 1 + (TH[e] // 20).astype(int)
@@ -363,10 +368,9 @@ def run(out_dir: Path):
     edit("11c_big_epidermis", e11c, {"n_cortex_cells": 288})
     f11c = results(out_dir / "11c_big_epidermis")["feats"]
     f11c = f11c[(f11c.image_file == "S.tif") & (f11c.basis == "position") & (f11c.scope == "section")].iloc[0]
-    check("11c_big_epidermis", "main curve turns up at the epidermis (outer_rise_rel > 0.1)",
-          bool(f11c.outer_rise_rel > 0.1), True)
-    check("11c_big_epidermis", "cortex-only curve does not (outer_rise_rel_cortex < 0.05)",
-          bool(f11c.outer_rise_rel_cortex < 0.05), True)
+    check("11c_big_epidermis", "main curve: peak at the outer edge (peak_pos_rel > 0.9)", bool(f11c.peak_pos_rel > 0.9), True)
+    check("11c_big_epidermis", "without the epidermis: peak inside (peak_pos_rel_cortex < 0.8)",
+          bool(f11c.peak_pos_rel_cortex < 0.8), True)
 
     # 11b: a quarter with < 45 deg kept is not used for quarter features
     i11b = edit("11b_quarter_mostly_excluded", sectors((0, 50, "torn")), {"angle_kept_deg": 310})

@@ -11,7 +11,7 @@ Uses <anatomy_dir>/samples.xlsx (one row per image; made by run_batch.py, or her
              Fill it any time after measuring: the scale is used only here, never for outlining.
   include    "no" drops the image
   epidermis  yes = intact, no = lost in sectioning (the outermost layer is then outer cortex, tagged epidermis by
-             position); empty = not checked. The pattern includes the epidermis as its last point either way.
+             position); empty = not checked. The pattern counts every cell outside the endodermis either way.
 Writes <anatomy_dir>/../results/anatomy_summary_YYYY-MM-DD.xlsx
 """
 from __future__ import annotations
@@ -76,17 +76,19 @@ COLUMNS = {
     "air_space_total_area_um2": "their total area (µm²)",
     "mx_n": "metaxylem vessels (whole section)", "mx_mean_area_um2": "mean metaxylem vessel area (µm²)",
     "mx_total_area_um2": "total metaxylem area (µm²)",
-    "bin": f"1..{N_BINS} = r_norm bins of the cortex (1 next to the stele); epidermis = its own point",
-    "x_position": "bin centre on the 0-1 axis (epidermis drawn just past 1)",
-    "n_cells": "cells in this bin (kept angles); few_cells = TRUE below " + str(P.MIN_CELLS_PER_BIN),
-    "few_cells": f"TRUE when the bin has fewer than {P.MIN_CELLS_PER_BIN} cortical cells: read it with care",
+    "bin": f"position: 1..{N_BINS} = r_norm bins (1 next to the stele); file: the cell file number (the epidermis is "
+           "the outermost file)",
+    "x_position": "where the bin sits on the 0-1 axis (position: bin centre; file: median file_rel of its cells)",
+    "n_cells": "cells in this bin (kept angles, cortex + epidermis); few_cells = TRUE below " + str(P.MIN_CELLS_PER_BIN),
+    "few_cells": f"TRUE when the bin has fewer than {P.MIN_CELLS_PER_BIN} cells: read it with care",
     "median_area_um2": "median cell area in this bin (µm²)",
-    "rel": "median area in the bin / the image's median cortical cell area (shape without overall size)",
-    "epidermis_rel": "epidermis median cell area / the image's median cortical cell area",
+    "rel": "median area in the bin / the image's median cell area (cortex + epidermis): shape without overall size",
+    "epidermis_rel": "median area of the cells tagged epidermis (within 6 px of the outline) / the image's median",
     "min_cells_in_bin": "fewest cortical cells in any cortex bin of this image",
     "area_unit": "unit of the absolute sizes in this row: um2, or px when the image has no scale",
-    "peak_height_rel": "largest value on the fitted curve; _rel = relative size (shape), epidermis as the last point; "
-                       "_abs = the same in area_unit; _rel_cortex = relative, cortex only (same for the columns below)",
+    "peak_height_rel": "largest value on the fitted curve; _rel = relative size (shape), all cells outside the "
+                       "endodermis; _abs = the same in area_unit; _rel_cortex = relative, without the cells tagged "
+                       "epidermis (a check) (same for the columns below)",
     "peak_pos_rel": "where the peak is on the 0-1 axis (stele side 0, epidermis side 1)",
     "rise_slope_rel": "(peak - first value) / distance: how fast cells grow from the stele to the peak",
     "decay_slope_rel": "slope just past the peak (over 20% of the range): how fast cells shrink outward",
@@ -108,10 +110,9 @@ COLUMNS = {
     "n_giant_cortex_cells": "kept cortical cells > 5 x the median: possibly a lacuna Cellpose took for a cell, check",
     "n_lacunae": "aerenchyma lacunae: gaps in the cortex that are not cells, >= 2 x the median cortical cell, "
                  "touching neither the root edge nor the stele, centre in the kept angles",
-    "epidermis_deg": "kept degrees (5-deg steps) holding an epidermal cell: Cellpose often misses the epidermis; "
-                     "below 90 the epidermis point is flagged (few_cells / epidermis_few)",
-    "epidermis_few": "TRUE when the epidermis point rests on too few degrees (whole section < 90, a quarter < 22.5): "
-                     "the lip / outer_rise of _rel and _abs is then unreliable; use _rel_cortex",
+    "epidermis_deg": "kept degrees (5-deg steps) holding a cell tagged epidermis: Cellpose often misses the epidermis, "
+                     "so the outer bins then rest on hypodermis; below 90 compare _rel with _rel_cortex",
+    "n_cells": "cells in the pattern (cortex + epidermis, kept angles)",
     "n_gaps_missed_cell": "gaps of about one cell (0.5-2 x the median) inside the cortex: usually a cell Cellpose "
                           "missed. Review hint: draw the cell",
     "lacuna_area_um2": "total lacuna area (µm²)", "aerenchyma_share": "lacuna area / cortex area kept",
@@ -221,7 +222,7 @@ def main(anatomy_dir: Path, image_figures: bool = False):
         fl = P.cell_files(cells, props, centre, arcs)
         props = props.join(fl, on="label")
         props["quarter"] = P.quarter_of(np.degrees(props.angle_rad))
-        c_all = props[props.tissue == "cortex"]
+        c_all = props[props.tissue.isin(P.PATTERN_TISSUES)]          # rel reference: the tissue median
         ref = c_all.area_px.median() if len(c_all) else np.nan
         qs = [int(q) for q in st["quarters_used"].split(",") if q]
         scopes = {"section": (props, st["angle_kept_deg"])}
@@ -238,22 +239,20 @@ def main(anatomy_dir: Path, image_figures: bool = False):
                 if basis == "position" and scope == "section":
                     prof = pr
                 prof_rows.append(pr.rename(columns={"x": "x_position"}).assign(**base, basis=basis, scope=scope))
-                cx = pr[pr.bin != "epidermis"]
-                epi = pr[pr.bin == "epidermis"].iloc[0]
                 allp = pr.dropna(subset=["rel"])
                 w_all = allp.n_cells.where(allp.n_cells > 0)
-                w_cx = cx.n_cells.where(cx.n_cells > 0)
+                pc = P.sector_profile(sub, N_BINS, ref, basis, tissues=("cortex",)).dropna(subset=["rel"])
                 ycol = "median_area_um2" if um else "median_area_px"
+                e_sub = sub[sub.tissue == "epidermis"]
                 f = {**base, "basis": basis, "scope": scope, "area_unit": unit, "kept_deg": kdeg,
                      "low_coverage": st["low_coverage"] if scope == "section" else kdeg < P.MIN_QUARTER_DEG,
-                     "n_cortex_cells": int(cx.n_cells.sum()),
-                     "min_cells_in_bin": int(cx.n_cells.min()) if len(cx) else 0, "epidermis_rel": epi.rel,
-                     "epidermis_few": bool(epi.few_cells),
+                     "n_cells": int(pr.n_cells.sum()), "min_cells_in_bin": int(pr.n_cells.min()) if len(pr) else 0,
+                     "epidermis_deg": P.epidermis_deg(sub, arcs),
+                     "epidermis_rel": e_sub.area_px.median() / ref if len(e_sub) else np.nan,
                      "epidermis": samples.at[rel, "epidermis"] if "epidermis" in samples.columns else None}
                 for sfx, (x, y, ww) in {"_rel": (allp.x, allp.rel, w_all), "_abs": (allp.x, allp[ycol], w_all),
-                                        "_rel_cortex": (cx.x, cx.rel, w_cx)}.items():
-                    f.update({k + sfx: v for k, v in PP.profile_features(
-                        x, y, ww, peak_max_x=None if sfx == "_rel_cortex" else 1.0).items()})
+                                        "_rel_cortex": (pc.x, pc.rel, pc.n_cells.where(pc.n_cells > 0))}.items():
+                    f.update({k + sfx: v for k, v in PP.profile_features(x, y, ww).items()})
                 feat_rows.append(f)
                 if scope != "section":
                     qfeat.append(f)
@@ -266,8 +265,7 @@ def main(anatomy_dir: Path, image_figures: bool = False):
                 for scope, agg in (("quarter_mean", "mean"), ("quarter_sd", "std")):
                     feat_rows.append({**base, "basis": basis, "scope": scope, "area_unit": unit,
                                       "n_quarters": len(q), **q[cols].agg(agg).to_dict()})
-        cx = prof[prof.bin != "epidermis"]
-        epi = prof[prof.bin == "epidermis"].iloc[0]
+        e_all = props[props.tissue == "epidermis"]
         lac, aprof, n_gaps = P.lacunae(cells, region, mx, props, centre, arcs, N_BINS)
         lac_area = int(lac.area_px.sum()) if len(lac) else 0
         lt = {"n_lacunae": len(lac), "lacuna_area_px": lac_area, "n_gaps_missed_cell": n_gaps,
@@ -278,7 +276,8 @@ def main(anatomy_dir: Path, image_figures: bool = False):
         img_rows.append({**meta, "tech_rep": tech, "status": status, "um_per_px": s,
                          "epidermis": samples.at[rel, "epidermis"] if "epidermis" in samples.columns else None,
                          **whole, **st, **lt,
-                         "epidermis_rel": epi.rel, "min_cells_in_bin": int(cx.n_cells.min()),
+                         "epidermis_rel": e_all.area_px.median() / ref if len(e_all) else np.nan,
+                         "min_cells_in_bin": int(prof.n_cells.min()),
                          **to_um({**whole, **st, **lt}, s)})
         ycol = "median_area_um2" if um else "median_area_px"
         if image_figures:
@@ -349,16 +348,16 @@ def main(anatomy_dir: Path, image_figures: bool = False):
     today = dt.date.today().isoformat()
     files_out = {
         f"cortex_pattern_{today}.xlsx": {
-            "per_image_profile": (per_image_profile, f"one row per image x basis x scope x bin: every cortical cell in the kept angles "
-                                  f"(centre rule), r_norm in {N_BINS} bins (1 = next to the stele), median area per bin, "
-                                  "then the epidermis as its own row. rel = bin median / the image's median cortical "
+            "per_image_profile": (per_image_profile, f"one row per image x basis x scope x bin: every cell outside the "
+                                  f"endodermis in the kept angles (centre rule), position: r_norm in {N_BINS} bins (1 = "
+                                  "next to the stele); file: one row per cell file. rel = bin median / the image's median "
                                   f"cell area. few_cells = fewer than {P.MIN_CELLS_PER_BIN} cells in the bin"),
             "profile_features": (profile_features, "one row per image x basis (position | file) x scope (section, "
                                  "Q1..Q4, quarter_mean, quarter_sd): smoothing spline (GCV) through the bin medians "
-                                 "(weights = cells per bin); features read off the curve. _rel = relative size with the "
-                                 "epidermis as the last point (the main pattern), _abs = the same in area_unit, "
-                                 "_rel_cortex = relative, cortex only. The peak is always a cortex peak (searched "
-                                 "at x <= 1); with the epidermis in, outer_rise is the lip up to it. "
+                                 "(weights = cells per bin); features read off the curve. The pattern = every cell "
+                                 "outside the endodermis (cortex + epidermis, one tissue). _rel = relative size (the "
+                                 "main pattern), _abs = the same in area_unit, _rel_cortex = without the cells tagged "
+                                 "epidermis (a check). "
                                  "peak_height, peak_pos; rise_slope = (peak - first) / distance; decay_slope = local, "
                                  "over 20% of the range past the peak; outer_rise = last value - minimum after the peak. "
                                  f"NaN = fewer than {PP.MIN_PTS} bins with cells or feature undefined (peak at an end). "

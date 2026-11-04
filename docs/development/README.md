@@ -126,3 +126,22 @@ Rooh started on 2026-10-27 as `cross_section_anatomy`, was briefly renamed JadNa
 - **Root outline:** the cells-only outline was tested and rejected. It was 1.4–11.6% smaller on fluorescence because Cellpose misses the epidermis.
   - The brightfield "outline = microscope field" problem in `examples/amool_*` comes from stale Oct 30 masks made before the inversion fix. A fresh auto pass fixes it.
 - **Checks:** `tests/check_numbers.py` now passes 140 of 140 (it was 105 + 2 known failures). New: file = layer, file pattern, quarters used and quarter mean, diameter, lacuna area / position / bins, a tear at the stele (not a lacuna), a one-cell gap (a hint, not a lacuna), and a big epidermis (lip in `_rel`, not in `_rel_cortex`).
+
+## 2026-11-03 (later) · Epidermis: part of the tissue, not a separate point
+- **Decision (Jagdeep):** the epidermis is treated as the outer part of the same tissue.
+  - The pattern is every cell outside the endodermis, binned by position.
+  - The epidermis falls in the outermost bin and is the outermost cell file.
+  - The peak is searched over the whole curve.
+  - This replaces the morning's "last point, peak kept in the cortex".
+- **Why:**
+  - "Epidermis" is a position tag, cells within 6 px of the outline, not a cell type.
+  - Cellpose finds it on only 25–300° of 360°.
+  - Tyler never split it out.
+  - "All cells outside the endodermis" is a clean Methods sentence.
+- **Kept:**
+  - The tag on each cell.
+  - `epidermis_deg` (how much of the circle has it).
+  - `_rel_cortex`, the same features without the tagged cells, ready if a reviewer asks.
+  - CCFN stays cortex only.
+- **Consequence:** if the outer cells are the largest, the peak sits at the edge and decay / outer rise come out NaN. That is rare in maize, and it is the honest answer.
+- **Checks:** 142 of 142 pass. Bin 10 and file 9 equal the epidermis, and a big epidermis moves the main peak to the edge but not the `_rel_cortex` peak.

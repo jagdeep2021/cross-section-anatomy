@@ -138,11 +138,13 @@ Everything else is derived by `derive()`, so the editor and the summary always a
 - **Cell file number (2026-11-03)**: rays every 0.5° in the kept angles number the cortical cells 1, 2 ... from the
   stele out; a cell's `file` = median of its numbers, `file_rel` = median of (k - 0.5) / n. Gives the second pattern
   (`basis = file`: median area per file) next to the position pattern (`basis = position`).
-- **Epidermis in the pattern (2026-11-03)**: the epidermis is the curve's last point (x = 1.05), the "lip". Features
-  `_rel` / `_abs` include it, `_rel_cortex` leaves it out. The peak is always searched in the cortex (x <= 1), so a big
-  epidermis shows up as outer_rise, never as the peak. Cellpose often misses epidermal cells (auto masks covered 25-300
-  of 360°): `epidermis_deg` < 90 flags the point (open square, `epidermis_few`); then use `_rel_cortex`.
-  `samples.xlsx` column `epidermis` (yes / no / empty) records whether it was intact.
+- **Epidermis is part of the tissue (decided with Jagdeep 2026-11-03)**: the pattern = every cell outside the
+  endodermis, binned by position like any cell (the epidermis lands in the outermost bin / is the outermost file),
+  peak searched over the whole curve; `rel` = bin median / the median of those cells. As in Tyler's maize-cells, and
+  "epidermis" is a position tag (within 6 px of the outline), not a cell type we can trust. The tag stays on each cell;
+  `_rel_cortex` = the same features without the tagged cells (a check for reviewers). Cellpose often misses epidermal
+  cells (auto masks covered 25-300 of 360°): `epidermis_deg` says how much; below 90 compare `_rel` with `_rel_cortex`.
+  CCFN (`n_cortical_layers`) stays cortex only. `samples.xlsx` column `epidermis` (yes / no / empty) = intact or not.
 - **Aerenchyma lacunae (2026-11-03)**: a non-cell gap in the cortex >= 2 x the median cortical cell, touching neither
   the root edge nor the stele, centre in the kept angles. Derived from the masks (fix a false one by drawing the missing
   cell). Per lacuna: area, angle, quarter, r_norm (mean, inner, outer) (`lacunae` sheet); per image x r_norm bin: lacuna
