@@ -603,7 +603,7 @@ NEEDS_STELE = ("n_cortical_layers", "n_cortical_layers_min", "n_cortical_layers_
                "cortex_width_px", "cortex_area_kept_px", "cortex_area_est_px", "stele_share_est",
                "n_cortex_cells_est", "n_air_spaces_est", "n_giant_cortex_cells", "stele_area_px", "mx_n",
                "mx_mean_area_px", "mx_total_area_px", "n_lacunae", "lacuna_area_px", "n_gaps_missed_cell",
-               "aerenchyma_share", "lacuna_r_norm_mean")
+               "aerenchyma_share", "lacuna_r_norm_mean", "n_lacunae_overridden")
 
 
 DIST_BIN_UM = 20.0   # basis "distance": bin width in µm from the stele edge (decided 2026-11-04)
@@ -688,10 +688,12 @@ def pixel_position(region: np.ndarray, centre):
     return (r - r_st[d]) / np.maximum(r_rt[d] - r_st[d], 1), deg
 
 
-def lacunae(cells, region, mx, props, centre, arcs=(), n_bins: int = 10, mask: bool = False):
+def lacunae(cells, region, mx, props, centre, arcs=(), n_bins: int = 10, mask: bool = False, not_lacuna=()):
     """(per-lacuna table, aerenchyma profile per r_norm bin, n_gaps_missed_cell[, label image if mask]). props: after
     exclude_sectors. Only lacunae whose centre is in the kept angles count; the profile = lacuna pixels / cortex pixels
-    per bin, kept angles. mask=True also returns the lacunae as a label image (the editors shade them)."""
+    per bin, kept angles. mask=True also returns the lacunae as a label image (the editors shade them): > 0 counted,
+    -1 = a gap the rule would count that a reviewer marked "not a lacuna" (not_lacuna: their (y, x) marks; counted in
+    table.attrs["n_overridden"], reported as n_lacunae_overridden)."""
     root, stele = region >= 1, region == 2
     c = props[props.tissue == "cortex"]
     med = float(c.area_px.median()) if len(c) else np.nan
@@ -709,7 +711,9 @@ def lacunae(cells, region, mx, props, centre, arcs=(), n_bins: int = 10, mask: b
         core = segmentation.expand_labels(core, rad) * gap
         edge = root & ~morphology.erosion(root, morphology.disk(6))
         near_stele = morphology.dilation(stele, morphology.disk(3))
-        rows = []
+        rows, n_over = [], 0
+        marks = [(int(round(y)), int(round(x))) for y, x in not_lacuna
+                 if 0 <= round(y) < region.shape[0] and 0 <= round(x) < region.shape[1]]
         for g in measure.regionprops(core):
             m = core == g.label
             cy, cx = g.centroid
@@ -719,13 +723,18 @@ def lacunae(cells, region, mx, props, centre, arcs=(), n_bins: int = 10, mask: b
             if g.area < LACUNA_MIN_CELLS * med:
                 n_gaps += int(g.area >= GAP_MIN_CELLS * med)
                 continue
+            if any(m[y, x] for y, x in marks):       # a reviewer said: not a lacuna
+                lab[m] = -1
+                n_over += 1
+                continue
             lab[m] = len(rows) + 1
             rows.append({"lacuna": len(rows) + 1, "area_px": int(g.area), "y": cy, "x": cx, "angle_deg": a,
                          "quarter": int(quarter_of(a)), "r_norm": float(rn[m].mean()),
                          "r_norm_inner": float(rn[m].min()), "r_norm_outer": float(rn[m].max())})
-        table = pd.DataFrame(rows) if rows else empty
+        table = pd.DataFrame(rows) if rows else empty.copy()
     else:
-        table = empty
+        table, n_over = empty.copy(), 0
+    table.attrs["n_overridden"] = n_over
     tot = np.bincount(bins[ctx], minlength=n_bins)
     hole = np.bincount(bins[ctx & (lab > 0)], minlength=n_bins)
     prof = pd.DataFrame({"bin": np.arange(1, n_bins + 1), "x": (np.arange(n_bins) + 0.5) / n_bins,
@@ -738,6 +747,7 @@ def lacuna_traits(table, n_gaps: int, cortex_area_kept_px) -> dict:
     """Per-image aerenchyma numbers from lacunae() (Make results, the web and the desktop share them)."""
     area = int(table.area_px.sum()) if len(table) else 0
     return {"n_lacunae": len(table), "lacuna_area_px": area, "n_gaps_missed_cell": n_gaps,
+            "n_lacunae_overridden": int(table.attrs.get("n_overridden", 0)),
             "aerenchyma_share": area / cortex_area_kept_px if cortex_area_kept_px else np.nan,
             "lacuna_r_norm_mean": float(np.average(table.r_norm, weights=table.area_px)) if len(table) else np.nan}
 
@@ -750,6 +760,52 @@ def layer_image(cells: np.ndarray, props: pd.DataFrame) -> np.ndarray:
 
 
 # ---------------------------------------------------------------- storage
+
+def load_not_lacuna(npz_path) -> list:
+    """The reviewer's "not a lacuna" marks [(y, x)] (none in older files)."""
+    z = np.load(npz_path, allow_pickle=False)
+    return [tuple(map(float, p)) for p in z["not_lacuna"]] if "not_lacuna" in z else []
+
+
+def not_lacuna_arrays(marks) -> dict:
+    """The marks as an npz field (save_edit(npz, **not_lacuna_arrays(marks)))."""
+    return {"not_lacuna": np.asarray(marks, float).reshape(-1, 2)}
+
+
+def lacuna_edit(cells, region, mx, props, centre, arcs, marks, pts, remove=False):
+    """Aerenchyma edits, shared by the desktop editor and the web page. Returns (new marks, note); cells in place.
+    Drawn outline: "this is a lacuna": cells inside it, outside the stele, are cleared (fake cells Cellpose drew over
+    a hole), and marks inside it go; the usual rule then counts it (>= LACUNA_MIN_CELLS median cells, clear of the
+    stele and the root edge). Cmd/Ctrl-click on an orange lacuna: "not a lacuna" (a mark, kept in the npz, counted
+    as n_lacunae_overridden). Click on a grey (overridden) one: it counts again."""
+    pts = np.asarray(pts, float)
+    marks = list(marks)
+    if len(pts) > 2:
+        if remove:
+            return marks, "Aerenchyma: draw around a hole to make it a lacuna; Cmd/Ctrl-click an orange one to un-count it."
+        m = outline_mask(pts, region.shape) & (region == 1)
+        if m.sum() < 10:
+            return marks, "That outline is too small."
+        hit = {int(l): int((cells == l).sum()) for l in np.unique(cells[m]) if l}
+        cells[m] = 0
+        for l, before in hit.items():                # as take(): no slivers of the cleared cells
+            if (cells == l).sum() < 0.25 * before:
+                cells[cells == l] = 0
+        marks = [p for p in marks if not m[int(round(p[0])), int(round(p[1]))]]
+        return marks, ("Counted as a lacuna if it is at least %g median cortical cells and touches neither the stele "
+                       "nor the root edge." % LACUNA_MIN_CELLS)
+    y, x = (int(round(v)) for v in pts[0])
+    lab = lacunae(cells, region, mx, props, centre, arcs, mask=True, not_lacuna=marks)[3]
+    if remove:
+        if lab[y, x] > 0:
+            return marks + [(float(y), float(x))], "Marked: not a lacuna (shown grey; click it to count it again)."
+        return marks, "Cmd/Ctrl-click inside an orange lacuna to mark it as not a lacuna."
+    if lab[y, x] < 0:
+        comp = measure.label(lab < 0)
+        k = comp[y, x]
+        return [p for p in marks if comp[int(round(p[0])), int(round(p[1]))] != k], "Counted as a lacuna again."
+    return marks, "Aerenchyma: draw around a hole to make it a lacuna; Cmd/Ctrl-click an orange one to un-count it."
+
 
 def save_state(npz_path, cells, region, mx, status="auto", **meta):
     """Write to a temporary file, then rename: a crash mid-write never leaves a half file that looks done."""

@@ -9,8 +9,8 @@ Buttons:  Open folder...     the experiment folder, its raw/ (images) or anatomy
           um / pixel         the scale: always typed by you (scale bars are not read)
           Make results       tables + figures -> results/ next to anatomy/
 
-Pick what you are editing (keys 1-5; its name follows the cursor):
-  1 Cell   2 Metaxylem   3 Stele   4 Sectors   5 Root (Shift-drag: this outline is the root)
+Pick what you are editing (keys 1-6; its name follows the cursor):
+  1 Cell   2 Metaxylem   3 Stele   4 Sectors   5 Root (Shift-drag: this outline is the root)   6 Aerenchyma
 
 The same four gestures work on every target:
   click              add here      cell / vessel: fills the lumen out to its walls
@@ -61,16 +61,18 @@ import pipeline as P
 import run_batch as RB
 import summarise as SUM
 
-TARGETS = {"Cell": "yellow", "Metaxylem": "red", "Stele": "cyan", "Sectors": "white", "Root": "lime"}
+TARGETS = {"Cell": "yellow", "Metaxylem": "red", "Stele": "cyan", "Sectors": "white", "Root": "lime",
+           "Aerenchyma": "orange"}
 # the layers each editing target owns: the opacity slider acts on these only
 TARGET_LAYERS = {"Cell": ("cells", "air"), "Metaxylem": ("mx",), "Stele": ("region",),
-                 "Sectors": ("sect", "slab"), "Root": ("root",)}
+                 "Sectors": ("sect", "slab"), "Root": ("root",), "Aerenchyma": ("lac",)}
 CMD = "⌘" if sys.platform == "darwin" else "Ctrl"   # napari's "Control" is Cmd on a Mac
 _KEYS = [("Click", "add"), (f"{CMD}-click", "remove (stele: the whole stele)"), ("Shift-drag", "draw outline, add"),
          (f"{CMD}-Shift-drag", "draw outline, remove"), ("Drag / scroll", "move / zoom"),
-         ("1 2 3 4 5", "cell, metaxylem, stele, sectors, root"),
+         ("1 2 3 4 5 6", "cell, metaxylem, stele, sectors, root, aerenchyma"),
          ("4, Shift-drag", "across damage: exclude that arc"), (f"4, {CMD}-click", "an excluded arc comes back"),
          ("5, Shift-drag", "this outline is the root"),
+         ("6, Shift-drag", "around a hole: a lacuna"), (f"6, {CMD}-click", "orange: not a lacuna (grey); click grey: back"),
          ("Shift-H", "hide / show outlines"), ("Shift-A", "aerenchyma on / off"), ("Shift-F", "cell files on / off"), ("Shift-S", "save + next"), (", .", "previous / next image")]
 HELP = ("<table cellspacing='0' cellpadding='2' style='font-size:12px'>" +
         "".join(f"<tr><td style='color:#ffd479; padding-right:10px'><b>{k}</b></td><td>{v}</td></tr>"
@@ -560,7 +562,7 @@ class Reviewer:
         self.cells = lab(cells, "cells", {None: "yellow", 0: "transparent"}, 0.9)
         self.cells.contour = 1
         self.air = lab(np.zeros_like(cells), "air spaces", {None: "magenta", 0: "transparent"}, 0.8)
-        self.lac = lab(np.zeros_like(cells), "lacunae", {None: "darkorange", 0: "transparent"}, 0.6)
+        self.lac = lab(np.zeros_like(cells), "lacunae", {1: "darkorange", 2: "gray", None: "transparent", 0: "transparent"}, 0.6)
         self.files_lyr = v.add_image(np.zeros((*cells.shape, 4), np.uint8), name="cell files", rgb=True, opacity=1.0)
         self.sect = v.add_shapes(name="excluded sectors", face_color="transparent")
         self.slab = v.add_points(np.empty((0, 2)), name="sector reasons", size=0)
@@ -572,6 +574,7 @@ class Reviewer:
         self._apply_overlays()
         v.layers.selection.active = self.cells
         self.centre = P.load_centre(f)          # None = the stele centroid
+        self.marks = P.load_not_lacuna(f)       # reviewer's "not a lacuna" marks
         self.arcs = P.load_sectors(f, self.angle)   # excluded arcs (damaged tissue); old dropped quarters read as arcs
         self.set_target(self.target)
         self.recompute()
@@ -587,7 +590,7 @@ class Reviewer:
     def _state(self):
         """Everything an edit can change, to tell whether the open image was edited."""
         h = lambda a: hashlib.blake2b(np.ascontiguousarray(a).tobytes(), digest_size=16).digest()
-        return (h(self.cells.data), h(self.region.data), h(self.mx.data), tuple(self.arcs),
+        return (h(self.cells.data), h(self.region.data), h(self.mx.data), tuple(self.arcs), tuple(self.marks),
                 None if self.centre is None else tuple(np.asarray(self.centre).tolist()))
 
     def keep(self):
@@ -602,7 +605,7 @@ class Reviewer:
     def save(self):
         P.save_state(self.files[self.i], self.cells.data.astype(np.uint16), self.region.data.astype(np.uint8),
                      self.mx.data.astype(np.uint16), status="reviewed", image_file=self.rel,
-                     **P.sector_arrays(self.arcs),
+                     **P.sector_arrays(self.arcs), **P.not_lacuna_arrays(self.marks),
                      **({} if self.centre is None else {"centre": np.asarray(self.centre, float)}))
         self.status = "reviewed"
         self._opened = self._state()
@@ -631,8 +634,9 @@ class Reviewer:
         self.props = props
         st = P.sector_traits(cells, region, props, centre, self.arcs)
         self.air.data = np.isin(cells, props.label[props.tissue == "air_space"].values).astype(np.uint8)
-        lac, _, n_gaps, lac_mask = P.lacunae(cells, region, self.mx.data, props, centre, self.arcs, mask=True)
-        self.lac.data = (lac_mask > 0).astype(np.uint8)
+        lac, _, n_gaps, lac_mask = P.lacunae(cells, region, self.mx.data, props, centre, self.arcs, mask=True,
+                                             not_lacuna=self.marks)
+        self.lac.data = np.where(lac_mask > 0, 1, np.where(lac_mask < 0, 2, 0)).astype(np.uint8)   # 2 = overridden
         at = P.lacuna_traits(lac, n_gaps, st["cortex_area_kept_px"])
         if region.any() and (region == 2).any():          # cells coloured by file number (pattern_plots.file_rgba)
             self.files_lyr.data = PP.file_rgba(cells, P.cell_files(cells, props, centre, self.arcs, region=region).file)
@@ -744,6 +748,12 @@ class Reviewer:
             if note:
                 self.info.value += "\n" + note
                 return
+        elif t == "Aerenchyma":                     # same rule as the web page (pipeline.lacuna_edit)
+            self.marks, note = P.lacuna_edit(cells, region, mx, self.props, self._centre(), self.arcs, self.marks,
+                                             [(y, x)], remove)
+            self.info.value += "\n" + note
+            self.recompute()
+            return
         elif t == "Sectors":                        # Cmd/Ctrl-click inside an excluded arc: it comes back
             if remove:
                 n = len(self.arcs)
@@ -765,6 +775,10 @@ class Reviewer:
         cells, mx, region, t = self.cells.data, self.mx.data, self.region.data, self.target
         if t in ("Cell", "Metaxylem", "Stele", "Root"):
             P.outline_edit(cells, region, mx, t, m, remove)   # same rules as the web page
+        elif t == "Aerenchyma":
+            self.marks, note = P.lacuna_edit(cells, region, mx, self.props, self._centre(), self.arcs, self.marks,
+                                             pts, remove)
+            self.info.value += "\n" + note
         self._refresh()
 
     def _refresh(self):

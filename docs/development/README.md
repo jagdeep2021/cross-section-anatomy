@@ -181,3 +181,12 @@ Rooh started on 2026-10-27 as `cross_section_anatomy`, was briefly renamed JadNa
   - **New basis `distance`:** 20 µm bins from the stele edge (images with a scale). It survives every case but carries root size, so it is a cross-check, not the headline.
 - **Open (Jagdeep):** CCFN (`n_cortical_layers`) still counts only the cells present on each ray, so aerenchyma lowers it: R1 mature sections with lacunae read 8–9, while S29 without lacunae reads 12. Report a gap-aware CCFN beside it?
 - **Checks:** 161 of 161 pass (new: cortex found with an inner gap all round; file numbers unchanged after inner loss, aerenchyma and outer loss; distance bins).
+
+## 2026-11-04 (evening) · Aerenchyma can be edited: "this is a lacuna" / "not a lacuna"
+- **Decision (Jagdeep):** reviewers edit aerenchyma directly, in both editors (Aerenchyma mode, key 6; `pipeline.lacuna_edit`).
+  - **Draw around a hole:** the cells inside it (outside the stele) are cleared, as when Cellpose draws cells over a lacuna; slivers under 25% of a cell go too. The usual rule then decides: ≥ 2 median cortical cells, clear of the stele and the root edge. No new definition: it is a shortcut for removing cells.
+  - **⌘/Ctrl-click an orange lacuna:** "not a lacuna". A mark (y, x) stored in the image's npz (`not_lacuna`). A gap the rule would count that holds a mark is not counted and is reported as `n_lacunae_overridden`. Click the grey patch to count it again.
+- **Why:** the lacuna rule cannot tell a lysigenous lacuna from a patch of cells Cellpose missed (seen on Amool's example images, 2026-11-04: orange patches with intact cells inside). The right fix for missed cells is still drawing them in Cell mode; the mark is for patches that are not worth redrawing, or for gaps that are not aerenchyma (e.g. a cut).
+- **Traceability:** a reviewer's judgement now changes `n_lacunae`, `lacuna_area`, `aerenchyma_share` and the lacuna profile. `n_lacunae_overridden` > 0 says so per image; the marks stay in the npz.
+- **Evidence:** `tests/check_numbers.py` cases 11f (case 11's lacuna marked: n_lacunae 0, overridden 1, the one-cell gap untouched) and 11g (drawing around the 4 cells of case 11: one lacuna, as in case 11); 171 of 171 pass. On a copy of B73_R1 (Image_0098) through the web edit route: 2 → 1 lacunae (34.5 → 32.6%), overridden 1; click again: back to 2, mark removed.
+- **Re-run:** none needed (no image has marks yet). Results made from now on carry the new column.
