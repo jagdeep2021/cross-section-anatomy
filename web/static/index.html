@@ -295,13 +295,30 @@ async function upload(files) {
   const imgs = [...files].filter(f => /\.(tiff?|png|jpe?g)$/i.test(f.name) && !f.name.startsWith("."));
   if (!imgs.length) return showErr("No images (.tif .png .jpg) in that selection.");
   showErr();
-  for (let k = 0; k < imgs.length; k += 10) {         // in batches of 10, so a big folder shows progress
+  // batches of ~5 images, 3 sent at once (the connection is never idle); progress in MB as the bytes leave
+  const batches = [];
+  for (let k = 0; k < imgs.length; k += 5) batches.push(imgs.slice(k, k + 5));
+  const total = imgs.reduce((a, x) => a + x.size, 0), sent = new Array(batches.length).fill(0), mb = b => (b / 1e6).toFixed(0);
+  const t0 = Date.now();
+  const tell = () => { const s = sent.reduce((a, b) => a + b, 0), secs = (Date.now() - t0) / 1000;
+    const rate = s / Math.max(secs, 1), left = rate > 0 ? Math.round((total - s) / rate) : null;
+    $("jobMsg").textContent = `Uploading ${imgs.length} images: ${mb(s)} of ${mb(total)} MB` +
+      (left != null && s > 0 ? ` (~${left >= 90 ? Math.round(left / 60) + " min" : left + " s"} left)` : "") + "…"; };
+  const send = (b, i) => new Promise((ok, fail) => {
     const f = new FormData();
-    imgs.slice(k, k + 10).forEach(x => f.append("files", x, x.webkitRelativePath || x.name));
-    $("jobMsg").textContent = `Uploading ${Math.min(k + 10, imgs.length)} of ${imgs.length}…`;
-    await api(`/api/projects/${enc(S.project)}/upload`, { method: "POST", body: f });
-  }
-  $("jobMsg").textContent = `${imgs.length} image(s) added. Next: Outline new.`;
+    b.forEach(x => f.append("files", x, x.webkitRelativePath || x.name));
+    const x = new XMLHttpRequest();
+    x.open("POST", `/api/projects/${enc(S.project)}/upload`);
+    x.upload.onprogress = e => { sent[i] = e.loaded; tell(); };
+    x.onload = () => x.status < 300 ? ok() : fail(new Error((() => { try { return JSON.parse(x.responseText).detail; } catch (_) { return x.statusText; } })()));
+    x.onerror = () => fail(new Error("Upload interrupted: check the connection and add the folder again (images already sent are kept)."));
+    x.send(f);
+  });
+  let next = 0;
+  const worker = async () => { while (next < batches.length) { const i = next++; await send(batches[i], i); sent[i] = batches[i].reduce((a, x) => a + x.size, 0); tell(); } };
+  tell();
+  await Promise.all([worker(), worker(), worker()]);
+  $("jobMsg").textContent = `${imgs.length} image(s) added (${mb(total)} MB in ${Math.round((Date.now() - t0) / 1000)} s). Next: Outline new.`;
   await refresh();
 }
 $("upDir").onchange = e => upload(e.target.files).catch(showErr);

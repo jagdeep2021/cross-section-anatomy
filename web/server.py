@@ -394,8 +394,10 @@ def new_project(name: str = Form(...), u: dict = Depends(user)):
 
 
 @app.post("/api/projects/{name}/upload")
-async def upload(name: str, files: list[UploadFile] = File(...), u: dict = Depends(user)):
-    """Files keep their folder path (a dropped folder Maize/sibs/P1/x.tif stays that way): the folders become groups."""
+def upload(name: str, files: list[UploadFile] = File(...), u: dict = Depends(user)):
+    """Files keep their folder path (a dropped folder Maize/sibs/P1/x.tif stays that way): the folders become groups.
+    A plain def, not async: the copies block, so FastAPI runs them on a worker thread and the site keeps answering
+    while a big batch is written to the volume (as async it froze every other request)."""
     d = _project(u, name)
     saved = []
     for f in files:
