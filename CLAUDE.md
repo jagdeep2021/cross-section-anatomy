@@ -8,7 +8,7 @@ Read this at the start of every session. Claude Code loads it automatically.
 
 | What | Where | Never |
 |---|---|---|
-| Code | this repo (github.com/jagdeep2021/cross-section-anatomy) | on OneDrive, or copied into an experiment folder |
+| Code | this repo (github.com/jagdeep2021/rooh) | on OneDrive, or copied into an experiment folder |
 | Raw images | `<experiment>/raw/` on OneDrive | edited, renamed or moved; work on a copy |
 | Masks, `samples.xlsx`, `settings.json` | `<experiment>/anatomy/` | in git (except the small shipped sets in `examples/`) |
 | Results (xlsx, figures, methods text) | `<experiment>/results/`, made by Make results | edited by hand; re-run instead |
@@ -18,6 +18,7 @@ Read this at the start of every session. Claude Code loads it automatically.
 | Figures behind a decision | `docs/development/`, beside the script that draws them | without their script |
 | Known-answer tests | `tests/check_numbers.py` (synthetic sections, exact geometry) | skipped |
 | Thresholds | named constants at the top of their section in `pipeline.py` | bare numbers inside functions |
+| **Anything an editor shows or does** | both editors in the same PR: `review.py` (desktop) and `web/` (Jagdeep, 2026-11-04); drawing shared in `pattern_plots.py` | one editor only |
 | Rules shared by desktop and web | `pipeline.py` (`derive`, `click_edit`, `outline_edit`, `sector_edit` …) | copied into `review.py` or `web/server.py` |
 
 ## Before a session

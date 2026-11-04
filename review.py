@@ -71,7 +71,7 @@ _KEYS = [("Click", "add"), (f"{CMD}-click", "remove (stele: the whole stele)"), 
          ("1 2 3 4 5", "cell, metaxylem, stele, sectors, root"),
          ("4, Shift-drag", "across damage: exclude that arc"), (f"4, {CMD}-click", "an excluded arc comes back"),
          ("5, Shift-drag", "this outline is the root"),
-         ("Shift-H", "hide / show outlines"), ("Shift-S", "save + next"), (", .", "previous / next image")]
+         ("Shift-H", "hide / show outlines"), ("Shift-A", "aerenchyma on / off"), ("Shift-F", "cell files on / off"), ("Shift-S", "save + next"), (", .", "previous / next image")]
 HELP = ("<table cellspacing='0' cellpadding='2' style='font-size:12px'>" +
         "".join(f"<tr><td style='color:#ffd479; padding-right:10px'><b>{k}</b></td><td>{v}</td></tr>"
                 for k, v in _KEYS) + "</table>")
@@ -408,6 +408,19 @@ class Reviewer:
         self.ov_op.changed.connect(self._set_level)
         for s_ in (self.img_op, self.ov_op):
             s_.native.setFixedWidth(70)
+        self.aer_btn = PushButton(text="Aerenchyma")     # lacunae as Make results counts them; Shift-A
+        self.aer_btn.native.setCheckable(True)
+        self.aer_btn.native.setChecked(True)
+        self.aer_btn.native.setStyleSheet("QPushButton:checked {background: #ff8c00; color: #111;}")
+        self.aer_btn.native.toggled.connect(lambda _: self._apply_overlays())
+        self.files_btn = PushButton(text="Cell files")   # cells coloured by file number, 1 blue .. 15+ red; Shift-F
+        self.files_btn.native.setCheckable(True)
+        self.files_btn.native.setToolTip("Colour cells by cell file number: 1 (next to the stele, blue) to 15+ (red), "
+                                         "the same scale on every image")
+        self.files_btn.native.setStyleSheet("QPushButton:checked {background: qlineargradient(x1:0, x2:1, "
+                                            "stop:0 #30123b, stop:0.3 #28bbec, stop:0.55 #a2fc3c, stop:0.8 #fb8022, "
+                                            "stop:1 #7a0403); color: white;}")
+        self.files_btn.native.toggled.connect(lambda _: self._apply_overlays())
         prev, nxt, save = PushButton(text="<"), PushButton(text=">"), PushButton(text="Save + next")
         prev.changed.connect(lambda: self.step(-1))
         nxt.changed.connect(lambda: self.step(1))
@@ -438,7 +451,7 @@ class Reviewer:
                        group("µm/px", self.scale, self.scale_grp, scale_img),
                        group(self.pick, prev, nxt, save),
                        group("editing", self.target_box, "sector reason", self.reason_box, "opacity", self.ov_op),
-                       group("image", self.img_op)])
+                       group("image", self.img_op), group(self.aer_btn, self.files_btn)])
         bar.dock = self.viewer.window.add_dock_widget(bar, area="top", name="Controls")
         bar.dock.setTitleBarWidget(QWidget())    # no close button: the bar can't be lost by accident
         bar.dock.setFixedHeight(bar.height() + 4)
@@ -479,6 +492,8 @@ class Reviewer:
         for k, t in enumerate(TARGETS, 1):
             v.bind_key(str(k), lambda _, t=t: self.set_target(t), overwrite=True)
         v.bind_key("Shift-H", lambda _: self.toggle_overlays(), overwrite=True)
+        v.bind_key("Shift-A", lambda _: self.aer_btn.native.toggle(), overwrite=True)
+        v.bind_key("Shift-F", lambda _: self.files_btn.native.toggle(), overwrite=True)
         v.bind_key("Shift-S", lambda _: self.save_next(), overwrite=True)
         v.bind_key(".", lambda _: self.step(1), overwrite=True)
         v.bind_key(",", lambda _: self.step(-1), overwrite=True)
@@ -515,6 +530,8 @@ class Reviewer:
             for name in names:
                 lyr = getattr(self, name)
                 lyr.opacity, lyr.visible = self._base[lyr] * a, a > 0
+        self.lac.visible = self.aer_btn.native.isChecked() and not self.hidden
+        self.files_lyr.visible = self.files_btn.native.isChecked() and not self.hidden
 
     def _choices(self):
         return [f.stem + ("  ✓" if P.load_state(f)[3] == "reviewed" else "") for f in self.files]
@@ -543,7 +560,8 @@ class Reviewer:
         self.cells = lab(cells, "cells", {None: "yellow", 0: "transparent"}, 0.9)
         self.cells.contour = 1
         self.air = lab(np.zeros_like(cells), "air spaces", {None: "magenta", 0: "transparent"}, 0.8)
-        self.lac = lab(np.zeros_like(cells), "lacunae", {None: "orange", 0: "transparent"}, 0.5)
+        self.lac = lab(np.zeros_like(cells), "lacunae", {None: "darkorange", 0: "transparent"}, 0.6)
+        self.files_lyr = v.add_image(np.zeros((*cells.shape, 4), np.uint8), name="cell files", rgb=True, opacity=1.0)
         self.sect = v.add_shapes(name="excluded sectors", face_color="transparent")
         self.slab = v.add_points(np.empty((0, 2)), name="sector reasons", size=0)
         self.outline = v.add_shapes(name="outline", edge_color="white", edge_width=1.5, face_color="transparent")
@@ -616,6 +634,12 @@ class Reviewer:
         lac, _, n_gaps, lac_mask = P.lacunae(cells, region, self.mx.data, props, centre, self.arcs, mask=True)
         self.lac.data = (lac_mask > 0).astype(np.uint8)
         at = P.lacuna_traits(lac, n_gaps, st["cortex_area_kept_px"])
+        if region.any() and (region == 2).any():          # cells coloured by file number (pattern_plots.file_rgba)
+            self.files_lyr.data = PP.file_rgba(cells, P.cell_files(cells, props, centre, self.arcs, region=region).file)
+        else:
+            self.files_lyr.data = np.zeros((*cells.shape, 4), np.uint8)
+        self.aer_btn.text = (f"Aerenchyma · {at['n_lacunae']} ({100 * at['aerenchyma_share']:.1f}%)"
+                             if at["n_lacunae"] else "Aerenchyma · none")
         cy, cx = centre
         r_st, r_rt = P.radial_profile(region, centre)
         rad = lambda prof, t: prof[np.mod(np.round(t), 360).astype(int)]
@@ -656,18 +680,10 @@ class Reviewer:
                            + (f" ({100 * at['aerenchyma_share']:.1f}% of cortex)" if at["n_lacunae"] else ""))
 
     def draw_profile(self):
-        """Live cortex pattern (same as the result figures): kept cortical cells, median per radial bin,
-        epidermis its own point."""
-        s = P.um_per_px(self.dir, self.rel)   # samples.xlsx, given by the user
-        um = not np.isnan(s)
-        s = s if um else 1
+        """Live cortex pattern (pattern_plots.live_pattern, as the web): the section and each quarter kept."""
         ax = self.prof_ax
         ax.clear()
-        prof = P.sector_profile(self.props, SUM.N_BINS)
-        PP.sector_pattern(ax, prof.assign(y=prof.median_area_px * s * s), "y",
-                          "Cell area (µm²)" if um else "Cell area (px)", compact=True)
-        ax.tick_params(labelsize=7)
-        ax.xaxis.label.set_size(8), ax.yaxis.label.set_size(8)
+        PP.live_pattern(ax, self.props, self.arcs, P.um_per_px(self.dir, self.rel), SUM.N_BINS)
         self.canvas.draw_idle()
 
     # ---------------------------------------------------------- mouse
