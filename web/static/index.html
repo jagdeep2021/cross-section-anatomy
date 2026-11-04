@@ -275,7 +275,18 @@ $("projNew").onclick = async () => {
         $("projNewRow").hidden = true; await loadProjects(r.name); } catch (e) { showErr(e); }
 };
 $("projName").onkeydown = e => { if (e.key === "Enter") $("projNew").click(); };
-$("projDel").onclick = () => { $("delName").textContent = S.project; $("delDlg").showModal(); };
+$("projDel").onclick = async () => {
+  if (!S.local) { $("delName").textContent = S.project; $("delDlg").showModal(); return; }
+  if (!confirm(`Take ${S.project} off this list? The folder and everything in it stay on your computer.`)) return;
+  try { await api(`/api/projects/${enc(S.project)}`, { method: "DELETE" }); clearTimeout(S.poll); S.project = null;
+        await loadProjects(); await openProject(""); } catch (e) { showErr(e); }
+};
+async function openLocalFolder() {                // this computer: the system's folder picker, the folder stays put
+  try { $("jobMsg").textContent = "Pick a folder in the window that opened…";
+        const r = await api("/api/local/open", form({ path: "" }));
+        $("jobMsg").textContent = "";
+        if (r.name) { await loadProjects(r.name); } } catch (e) { $("jobMsg").textContent = ""; showErr(e); }
+}
 $("delNo").onclick = () => $("delDlg").close();
 $("delDown").onclick = () => { location.href = `/api/projects/${enc(S.project)}/download_all`; };
 $("delYes").onclick = async () => {
@@ -651,6 +662,13 @@ function waiting() {
   if (!me.approved) return waiting();
   try {
     $("who").textContent = me.email;
+    if (me.local) {                                // the desktop app: your own folders, no accounts
+      S.local = true;
+      $("projAdd").textContent = "Open folder…"; $("projAdd").title = "Open an experiment folder (or its raw/, anatomy/, or a folder of images)";
+      $("projAdd").onclick = openLocalFolder;
+      $("projDel").title = "Take this folder off the list (nothing on disk changes)"; $("projDel").textContent = "✕";
+      document.title = "Rooh · this computer";
+    }
     if (me.admin) { $("peoplePanel").hidden = false; await loadPeople(); if (location.hash === "#people") $("peoplePanel").open = true; }
     let last = ""; try { last = localStorage.getItem("csa.project") || ""; } catch (_) {}
     await loadProjects();

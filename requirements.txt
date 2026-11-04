@@ -10,3 +10,6 @@ PyQt6==6.9.1; sys_platform == "linux"   # Hellbender = glibc 2.28; Qt 6.10+ Linu
 scikit-image==0.26.0
 scipy==1.18.1
 torch==2.14.1
+fastapi==0.162.0
+uvicorn==0.54.0
+python-multipart==0.0.32

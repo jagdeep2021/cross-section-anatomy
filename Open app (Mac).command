@@ -8,4 +8,4 @@ if [ -x .uv/uv ] && ! cmp -s requirements.txt .venv/installed_requirements.txt; 
   .uv/uv pip install --python .venv/bin/python -r requirements.txt || { echo "Updating failed. Send Jagdeep a screenshot."; read -r; exit 1; }
   cp requirements.txt .venv/installed_requirements.txt
 fi
-.venv/bin/python -W ignore review.py
+.venv/bin/python -W ignore web/server.py local   # the web page on this computer; classic editor: .venv/bin/python review.py

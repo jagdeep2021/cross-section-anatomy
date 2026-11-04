@@ -38,4 +38,4 @@ print(f"xcb-cursor ready ({real.name})")
 PY
 fi
 export LD_LIBRARY_PATH="$PWD/.venv/xcb-cursor${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-.venv/bin/python -W ignore review.py
+.venv/bin/python -W ignore web/server.py local   # the web page on this computer; classic editor: .venv/bin/python review.py

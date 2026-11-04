@@ -86,8 +86,33 @@ def invite(email: str, admin: bool = False) -> str:
     return token
 
 
+# ---------------------------------------------------------------- local mode (the desktop app, `server.py local`)
+# The same page and rules, on this computer: no accounts; a project is any experiment folder the user opens (it
+# stays where it is; the list of opened folders is kept in ~/.rooh/local_projects.json). The browser gets a private
+# key in its cookie when the launcher opens it, so other web pages cannot drive this server.
+LOCAL = {"on": False, "key": ""}
+LOCAL_USER = {"email": "this computer", "name": "", "admin": False, "approved": True}
+LOCAL_REG = Path.home() / ".rooh" / "local_projects.json"
+
+
+def _reg() -> dict:
+    try:
+        return json.loads(LOCAL_REG.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _reg_save(r: dict) -> None:
+    LOCAL_REG.parent.mkdir(parents=True, exist_ok=True)
+    LOCAL_REG.write_text(json.dumps(r, indent=1))
+
+
 def _signed_in(csa: str | None = Cookie(default=None)) -> dict:
     """The person behind this browser's cookie, approved or still waiting."""
+    if LOCAL["on"]:
+        if csa != LOCAL["key"]:
+            raise HTTPException(401, "Open Rooh with its Open app launcher (this page has no key).")
+        return LOCAL_USER
     u = _users().get(_hash(csa)) if csa else None
     if u is None and csa:                # a new invite was written by another machine: look once more
         try:
@@ -126,7 +151,19 @@ def _slug(name: str) -> str:
 
 
 def project_dir(u: dict, name: str) -> Path:
+    if LOCAL["on"]:
+        p = _reg().get(name)
+        if p is None:
+            raise HTTPException(404, f"No project {name}: open its folder again.")
+        return Path(p)
     return DATA / "projects" / _uid(u) / _slug(name)
+
+
+def _raw(d: Path) -> Path:
+    """The project's images: raw/ on the web; on this computer wherever anatomy/settings.json points (raw/, or the
+    image folder itself), as the desktop app has always read it."""
+    s = d / "anatomy" / "settings.json"
+    return P.image_dir(d / "anatomy", json.loads(s.read_text())) if s.exists() else d / "raw"
 
 
 def _project(u: dict, name: str) -> Path:
@@ -148,7 +185,7 @@ def _safe_rel(rel: str) -> PurePosixPath:
 def _images(d: Path) -> list[dict]:
     """Every uploaded image, measured or not, with its status."""
     out = []
-    for rel in RB.list_images(d / "raw"):
+    for rel in RB.list_images(_raw(d)):
         key = RB.image_key(rel)
         npz = d / "anatomy" / "masks" / f"{key}.npz"
         out.append({"image": rel.as_posix(), "key": key,
@@ -171,7 +208,7 @@ def _worker(propose=None, commit=lambda: None):
         job.update(state="running", started=time.time())
         print(f"[measure] start {d}", flush=True)
         try:
-            for i, n, line in RB.batch(d / "raw", d / "anatomy", propose=propose):
+            for i, n, line in RB.batch(_raw(d), d / "anatomy", propose=propose):
                 job.update(i=i, n=n, line=line)
                 print(f"[measure] {i}/{n} {line}", flush=True)
                 commit()
@@ -193,7 +230,7 @@ def queue_measure(d: Path) -> dict:
     job = JOBS.get(str(d))
     if job and job["state"] in ("queued", "running"):
         return job
-    JOBS[str(d)] = {"state": "queued", "i": 0, "n": len(RB.list_images(d / "raw")), "line": "Waiting for the GPU...",
+    JOBS[str(d)] = {"state": "queued", "i": 0, "n": len(RB.list_images(_raw(d))), "line": "Waiting for the GPU...",
                     "ahead": WORK.qsize()}
     WORK.put(d)
     return JOBS[str(d)]
@@ -223,7 +260,7 @@ def _cache(d: Path, key: str, kind: str) -> Path:
 
 def gray_png(d: Path, rel: str) -> Path:
     f = _cache(d, RB.image_key(Path(rel)), "gray")
-    src = d / "raw" / rel
+    src = _raw(d) / rel
     if not f.exists() or f.stat().st_mtime < src.stat().st_mtime:
         g = P.load_gray(src)                          # what the model saw: stretched, CLAHE
         Image.fromarray((g * 255).astype(np.uint8)).save(f, optimize=True)
@@ -283,6 +320,16 @@ def overlay_png(d: Path, rel: str, part: str) -> Path:
 
 # ---------------------------------------------------------------- routes
 
+@app.get("/local")
+def local_login(key: str):
+    """The launcher opens this once: the key becomes this browser's cookie (SameSite strict: other sites can't use it)."""
+    if not LOCAL["on"] or not secrets.compare_digest(key, LOCAL["key"]):
+        raise HTTPException(403, "Wrong key: close this tab and use the Open app launcher.")
+    r = RedirectResponse("/")
+    r.set_cookie("csa", key, httponly=True, samesite="strict")
+    return r
+
+
 @app.get("/login")
 def login(token: str):
     if _hash(token) not in _users():
@@ -310,7 +357,7 @@ def icon():
 @app.get("/api/me")
 def me(u: dict = Depends(_signed_in)):
     return {"email": u["email"], "name": u.get("name", ""), "admin": u.get("admin", False),
-            "approved": u.get("approved", True)}
+            "approved": u.get("approved", True), "local": LOCAL["on"]}
 
 
 def _notify(name: str, email: str, site: str):
@@ -382,12 +429,16 @@ def person(pid: str, action: str, me: dict = Depends(admin)):
 
 @app.get("/api/projects")
 def projects(u: dict = Depends(user)):
+    if LOCAL["on"]:
+        return sorted(n for n, p in _reg().items() if Path(p).is_dir())
     root = DATA / "projects" / _uid(u)
     return sorted(p.name for p in root.iterdir() if p.is_dir()) if root.exists() else []
 
 
 @app.post("/api/projects")
 def new_project(name: str = Form(...), u: dict = Depends(user)):
+    if LOCAL["on"]:
+        raise HTTPException(400, "On this computer, use Open folder…")
     d = project_dir(u, name)
     (d / "raw").mkdir(parents=True, exist_ok=True)
     return {"name": d.name}
@@ -404,7 +455,7 @@ def upload(name: str, files: list[UploadFile] = File(...), u: dict = Depends(use
         rel = _safe_rel(f.filename)
         if rel.suffix.lower() not in P.IMAGE_EXT:
             continue
-        dest = d / "raw" / rel
+        dest = _raw(d) / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         with open(dest, "wb") as out:
             shutil.copyfileobj(f.file, out)
@@ -570,7 +621,7 @@ def edit(name: str, rel: str = Form(...), target: str = Form(...), points: str =
         y, x = (int(round(v)) for v in pts[0])
         if not (0 <= y < cells.shape[0] and 0 <= x < cells.shape[1]):
             raise HTTPException(400, "Click on the image.")
-        gray = P.load_gray(d / "raw" / rel) if target != "Root" else None
+        gray = P.load_gray(_raw(d) / rel) if target != "Root" else None
         note = P.click_edit(gray, cells, region, mx, target, y, x, remove)
     else:
         m = P.outline_mask(pts, region.shape)
@@ -657,7 +708,13 @@ def download_all(name: str, u: dict = Depends(user)):
 
 @app.delete("/api/projects/{name}")
 def delete_project(name: str, u: dict = Depends(user)):
-    """Moves the project to trash/ (out of the user's list, not erased: an admin can still restore it)."""
+    """Moves the project to trash/ (out of the user's list, not erased: an admin can still restore it). On this
+    computer: only takes the folder off the list; nothing on disk is touched."""
+    if LOCAL["on"]:
+        r = _reg()
+        r.pop(name, None)
+        _reg_save(r)
+        return {"ok": True}
     d = _project(u, name)
     if JOBS.get(str(d), {}).get("state") in ("queued", "running"):
         raise HTTPException(400, "This project is being measured: wait until it finishes.")
@@ -665,6 +722,47 @@ def delete_project(name: str, u: dict = Depends(user)):
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(d), dest)
     return {"ok": True}
+
+
+def _pick_folder() -> str | None:
+    """The computer's own folder picker (Mac: Finder's; Windows / Linux: Tk's). None = cancelled."""
+    import subprocess
+    if sys.platform == "darwin":
+        r = subprocess.run(["osascript", "-e", 'POSIX path of (choose folder with prompt "Open an experiment folder '
+                            '(or its raw/, anatomy/, or a folder of images)")'], capture_output=True, text=True)
+    else:
+        r = subprocess.run([sys.executable, "-c", "import tkinter as t, tkinter.filedialog as f; w = t.Tk(); "
+                            "w.withdraw(); w.attributes('-topmost', True); "
+                            "print(f.askdirectory(title='Open an experiment folder') or '')"], capture_output=True, text=True)
+    p = r.stdout.strip()
+    return p or None
+
+
+@app.post("/api/local/open")
+def local_open(path: str = Form(""), u: dict = Depends(user)):
+    """This computer only: pick a folder (or pass its path) -> it joins the project list, where it is. Same rule as
+    the desktop app (run_batch.locate): the experiment folder, its raw/ or anatomy/, or a folder of images."""
+    if not LOCAL["on"]:
+        raise HTTPException(404)
+    path = path or _pick_folder()
+    if not path:
+        return {"name": None}
+    anatomy, imgs = RB.locate(path)
+    if anatomy is None:
+        raise HTTPException(400, f"No images (.tif .png .jpg), raw/ or anatomy/ in {path}.")
+    if imgs is not None:
+        try:
+            RB.load_settings(anatomy, imgs)          # anatomy/ beside the images: also tells now if it can be written
+        except PermissionError:
+            raise HTTPException(400, f"Rooh writes its results in an anatomy/ folder next to the images, and {Path(path).name} "
+                                     "is read-only (a shared folder?). Copy the images into a folder of your own "
+                                     "(e.g. <experiment>/raw) and open that.")
+    d = anatomy.parent
+    r = _reg()
+    name = next(n for n in (d.name, *(f"{d.name} ({k})" for k in range(2, 99))) if r.get(n) in (None, str(d)))
+    r[name] = str(d)
+    _reg_save(r)
+    return {"name": name}
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -677,6 +775,9 @@ def main():
     inv.add_argument("email")
     inv.add_argument("--admin", action="store_true")
     inv.add_argument("--base", default="http://localhost:8000")
+    loc = sub.add_parser("local", help="the desktop app: this computer, your own folders, opens the browser")
+    loc.add_argument("--port", type=int, default=0)
+    loc.add_argument("--no-browser", action="store_true")
     srv = sub.add_parser("serve")
     srv.add_argument("--port", type=int, default=8000)
     srv.add_argument("--host", default="127.0.0.1")
@@ -685,6 +786,23 @@ def main():
         print(f"{a.base}/login?token={invite(a.email, a.admin)}")
         return
     import uvicorn
+    if a.cmd == "local":
+        import socket
+        import webbrowser
+        LOCAL.update(on=True, key=secrets.token_urlsafe(24))
+        port = a.port
+        if not port:
+            with socket.socket() as s_:
+                s_.bind(("127.0.0.1", 0))
+                port = s_.getsockname()[1]
+        url = f"http://127.0.0.1:{port}/local?key={LOCAL['key']}"
+        print(f"Rooh is running on this computer. If no browser opened, open:\n  {url}\nClose this window to stop Rooh.",
+              flush=True)
+        if not a.no_browser:
+            threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+        start_worker()                              # measuring on this computer (its GPU if it has one)
+        uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+        return
     start_worker()
     uvicorn.run(app, host=a.host, port=a.port)
 
