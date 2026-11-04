@@ -145,6 +145,7 @@ Undefined features are blank: a peak at the first point has no rise, and a peak 
 |---|---|
 | `n_lacunae`, `lacuna_area` | Count and total area. |
 | `aerenchyma_share` | lacuna area / `cortex_area_kept`. |
+| `n_lacunae_overridden` | Gaps the rule would count that a reviewer marked **not a lacuna** (Aerenchyma mode, ⌘/Ctrl-click; marks kept in the image's npz). Not in `n_lacunae` or `aerenchyma_share`. Non-zero = a reviewer's judgement changed this image's aerenchyma. |
 | `lacuna_r_norm_mean` | Mean `r_norm` of the lacuna pixels, which weights each lacuna by its area. Where in the cortex the aerenchyma sits. |
 | sheet `lacunae` | One row per lacuna: area, angle, quarter, `r_norm` mean / inner / outer. |
 | sheet `aerenchyma_profile` | Per `r_norm` bin: lacuna pixels / root-outside-stele pixels, kept angles. |

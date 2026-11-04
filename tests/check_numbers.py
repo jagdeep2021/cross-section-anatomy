@@ -401,6 +401,28 @@ def run(out_dir: Path):
           (r1 - R_STELE) / (R_ROOT - R_STELE), .03)
     check("11_aerenchyma_lacuna", "lacuna quarter", int(lt.quarter.iloc[0]), 1)
 
+    # 11f: the same lacuna marked "not a lacuna" by a reviewer (pipeline.lacuna_edit, Cmd/Ctrl-click inside it):
+    # not counted, counted as overridden; the one-cell gap is untouched
+    def e11f(npz, c, rg, m):
+        gone = [lab(c, 5, d) for d in (15, 25, 35, 45)] + [lab(c, 6, 205)]
+        c[np.isin(c, gone)] = 0
+        props = P.derive(c, rg, m, 0, C)[0]
+        y, x = at((EDGES[4] + EDGES[5]) / 2, 30)
+        marks, _ = P.lacuna_edit(c, rg, m, props, C, [], [], [(y, x)], remove=True)
+        P.save_edit(npz, cells=c, **P.not_lacuna_arrays(marks))
+    edit("11f_lacuna_overridden", e11f, {"n_lacunae": 0, "lacuna_area_px": 0, "aerenchyma_share": 0,
+                                         "n_lacunae_overridden": 1, "n_gaps_missed_cell": 1})
+
+    # 11g: a reviewer draws around the same 4 cells ("this is a lacuna": Cellpose drew cells over a hole): the cells
+    # go and the rule counts exactly the lacuna of case 11
+    def e11g(npz, c, rg, m):
+        props = P.derive(c, rg, m, 0, C)[0]
+        r0, r1 = EDGES[4] + 1, EDGES[5] - 1
+        pts = [at(r0, t) for t in np.linspace(10.5, 49.5, 40)] + [at(r1, t) for t in np.linspace(49.5, 10.5, 40)]
+        marks, _ = P.lacuna_edit(c, rg, m, props, C, [], [], pts)
+        P.save_edit(npz, cells=c, **P.not_lacuna_arrays(marks))
+    edit("11g_lacuna_drawn", e11g, {"n_lacunae": 1, "n_lacunae_overridden": 0}, "walls between the 4 cells go too")
+
     # 11d: a tear against the stele (layer-1 cells gone over 60 deg) is not a lacuna
     def e11d(npz, c, rg, m):
         c[np.isin(c, [lab(c, 1, d) for d in range(185, 245, 10)] + [lab(c, 2, d) for d in range(185, 245, 10)])] = 0

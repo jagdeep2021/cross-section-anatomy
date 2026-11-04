@@ -180,6 +180,7 @@
     <button type="button" data-t="Stele" class="on"><i style="background:rgb(0,220,255)"></i>Stele<kbd>3</kbd></button>
     <button type="button" data-t="Sectors"><i style="background:#888;outline:1px solid var(--muted)"></i>Sector<kbd>4</kbd></button>
     <button type="button" data-t="Root"><i style="background:rgb(255,220,0)"></i>Root<kbd>5</kbd></button>
+    <button type="button" data-t="Aerenchyma"><i style="background:#ff8c00"></i>Aerenchyma<kbd>6</kbd></button>
   </div>
   <div class="tip" id="tip"></div>
   <div class="row" id="reasonRow" hidden><span style="width:52px">Reason</span><select id="reason" title="Why this arc is left out (technical damage only)">
@@ -482,12 +483,15 @@ function drawSectors() {                          // as in the desktop app: excl
 
 // ---------------------------------------------------------------- editing: drag draws, click adds, ⌘/Ctrl removes
 const COLOR = { Cell: "rgb(80,255,120)", Metaxylem: "rgb(255,60,60)", Stele: "rgb(0,220,255)",
-                Root: "rgb(255,220,0)", Sectors: "#fff" };
+                Root: "rgb(255,220,0)", Sectors: "#fff", Aerenchyma: "#ff8c00" };
 const TIP = {
   Cell: "Click inside a cell to fill it, or draw around one. ⌘/Ctrl-click removes a cell, ⌘/Ctrl-drag clears an area.",
   Metaxylem: "Click inside a vessel to fill it, or draw around one. ⌘/Ctrl-click removes a vessel.",
   Stele: "Draw the stele outline: it replaces the old one. ⌘/Ctrl-drag cuts an area out of the stele.",
   Root: "Draw the root outline: it replaces the old one. ⌘/Ctrl-drag cuts an area out of the root.",
+  Aerenchyma: "Orange = counted lacunae. Draw around a hole that Cellpose filled with cells: it becomes a lacuna. " +
+              "⌘/Ctrl-click an orange patch that is not aerenchyma (e.g. cells Cellpose missed): it turns grey and is not counted " +
+              "(reported as n_lacunae_overridden). Click a grey patch to count it again. Missed cells are better fixed in Cell mode.",
   Sectors: "The whole section counts. Drag around the stele from one side of damaged tissue to the other: that arc is left out " +
            "(the smaller way round; a wider one takes two drags). ⌘/Ctrl-click a grey arc to bring it back. Technical damage only: " +
            "aerenchyma and odd cells are biology, measured, not removed. Stele and vessels always count whole."};
@@ -557,7 +561,7 @@ $("aerBtn").onclick = toggleAer;
 function toggleFiles() { S.showFiles = !S.showFiles; $("filesBtn").classList.toggle("on", S.showFiles); draw(); }
 $("filesBtn").onclick = toggleFiles;
 $("fitBtn").onclick = () => { if (S.gray) { fit(); draw(); } };
-const KEYS = { 1: "Cell", 2: "Metaxylem", 3: "Stele", 4: "Sectors", 5: "Root" };
+const KEYS = { 1: "Cell", 2: "Metaxylem", 3: "Stele", 4: "Sectors", 5: "Root", 6: "Aerenchyma" };
 addEventListener("keydown", e => {
   if (["INPUT", "SELECT"].includes(e.target.tagName)) return;
   if (e.key === " ") { e.preventDefault(); S.space = true; cv.classList.add("pan"); }

@@ -131,6 +131,7 @@ COLUMNS = {
     "lacuna_area_um2": "total lacuna area (µm²)", "aerenchyma_share": "lacuna area / cortex area kept",
     "lacuna_r_norm_mean": "area-weighted mean radial position of lacuna pixels (0 stele edge, 1 root edge)",
     "lacuna": "lacuna number in the image",
+    "n_lacunae_overridden": "gaps the lacuna rule would count that a reviewer marked 'not a lacuna' (not in n_lacunae)",
     "r_norm_inner": "innermost radial position of the lacuna", "r_norm_outer": "outermost radial position",
     "cortex_px": "cortex pixels in this bin (kept angles)", "lacuna_px": "lacuna pixels in this bin",
     "lacuna_share": "lacuna pixels / cortex pixels in this bin",
@@ -428,6 +429,7 @@ def main(anatomy_dir: Path, image_figures: bool = False):
         if rel not in samples.index or samples.at[rel, "include"] == "no":
             continue
         cells, region, mx, status = P.load_state(f)
+        marks = P.load_not_lacuna(f)              # reviewer's 'not a lacuna' marks
         centre = P.centre_of(region, P.load_centre(f))
         props, mxp, tr = P.derive(cells, region, mx, angle, centre)
         arcs = P.load_sectors(f, angle)
@@ -489,7 +491,7 @@ def main(anatomy_dir: Path, image_figures: bool = False):
                     feat_rows.append({**base, "basis": basis, "scope": scope, "area_unit": unit,
                                       "n_quarters": len(q), **q[cols].agg(agg).to_dict()})
         e_all = props[props.tissue == "epidermis"]
-        lac, aprof, n_gaps = P.lacunae(cells, region, mx, props, centre, arcs, N_BINS)
+        lac, aprof, n_gaps = P.lacunae(cells, region, mx, props, centre, arcs, N_BINS, not_lacuna=marks)
         lt = P.lacuna_traits(lac, n_gaps, st["cortex_area_kept_px"])
         lac_rows.append(lac.assign(**base, area_um2=lac.area_px * s * s))
         aer_rows.append(aprof.assign(**base))

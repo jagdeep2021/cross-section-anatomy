@@ -231,7 +231,7 @@ def gray_png(d: Path, rel: str) -> Path:
 
 
 OVERLAY = {"cell": (80, 255, 120, 200), "root": (255, 220, 0, 255), "stele": (0, 220, 255, 255),
-           "mx": (255, 60, 60, 110), "lacuna": (255, 140, 0, 150), "lacuna_edge": (255, 140, 0, 255), "stele_fill": (0, 220, 255, 85)}
+           "mx": (255, 60, 60, 110), "lacuna": (255, 140, 0, 150), "lacuna_edge": (255, 140, 0, 255), "lacuna_off": (150, 150, 150, 140), "stele_fill": (0, 220, 255, 85)}
 
 
 def _live(d: Path, npz: Path):
@@ -260,7 +260,9 @@ def overlay_png(d: Path, rel: str, part: str) -> Path:
     elif part == "lacunae":                            # aerenchyma lacunae as Make results finds them (kept angles)
         if (region == 2).any():
             *_, centre, arcs, props, _ = _live(d, npz)
-            lac = P.lacunae(cells, region, mx, props, centre, arcs, mask=True)[3] > 0
+            lab = P.lacunae(cells, region, mx, props, centre, arcs, mask=True, not_lacuna=P.load_not_lacuna(npz))[3]
+            rgba[lab < 0] = OVERLAY["lacuna_off"]        # a reviewer said: not a lacuna
+            lac = lab > 0
             rgba[lac] = OVERLAY["lacuna"]
             w = max(2, round(max(cells.shape) / 600))
             rgba[ndi.binary_dilation(find_boundaries(lac, mode="inner") & lac, iterations=w) & lac] = OVERLAY["lacuna_edge"]
@@ -461,7 +463,7 @@ def traits(name: str, rel: str, u: dict = Depends(user)):
         raise HTTPException(404, "Not measured yet")
     cells, region, mx, status, centre, arcs, props, tr = _live(d, npz)
     tr.update(P.sector_traits(cells, region, props, centre, arcs))   # cortex: kept angles; stele, vessels: whole
-    lac, _, n_gaps = P.lacunae(cells, region, mx, props, centre, arcs)
+    lac, _, n_gaps = P.lacunae(cells, region, mx, props, centre, arcs, not_lacuna=P.load_not_lacuna(npz))
     tr.update(P.lacuna_traits(lac, n_gaps, tr["cortex_area_kept_px"]))
     if not tr.get("stele_found", (region == 2).any()):   # as in the results: no stele -> blank, not 0
         tr.update({k: None for k in P.NEEDS_STELE if k in tr})
@@ -532,7 +534,7 @@ def edit(name: str, rel: str = Form(...), target: str = Form(...), points: str =
     npz = d / "anatomy" / "masks" / f"{RB.image_key(Path(rel))}.npz"
     if not npz.exists():
         raise HTTPException(404, "Not measured yet")
-    if target not in ("Cell", "Metaxylem", "Stele", "Root", "Sectors"):
+    if target not in ("Cell", "Metaxylem", "Stele", "Root", "Sectors", "Aerenchyma"):
         raise HTTPException(400, f"Editing {target} in the browser is not available yet: use the desktop app.")
     pts = np.asarray(json.loads(points), float)
     if pts.ndim != 2 or pts.shape[1] != 2 or len(pts) == 0 or (len(pts) == 2 and target != "Sectors"):
@@ -552,6 +554,14 @@ def edit(name: str, rel: str = Form(...), target: str = Form(...), points: str =
                     else "No excluded arc there."}
         P.save_edit(npz, **P.sector_arrays(new))
         return {**traits(name, rel, u), "note": ""}
+    if target == "Aerenchyma":                     # pipeline.lacuna_edit: draw = a lacuna; Cmd/Ctrl-click = not one
+        cells, region, mx, _, centre, arcs, props, _ = _live(d, npz)
+        cells = cells.copy()
+        old = P.load_not_lacuna(npz)
+        marks, note = P.lacuna_edit(cells, region, mx, props, centre, arcs, old, pts, remove)
+        if marks != old or len(pts) > 2:
+            P.save_edit(npz, cells=cells, **P.not_lacuna_arrays(marks))
+        return {**traits(name, rel, u), "note": note}
     cells, region, mx = cells.copy(), region.copy(), mx.copy()
     note = ""
     if len(pts) == 1:
