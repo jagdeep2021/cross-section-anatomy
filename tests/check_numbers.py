@@ -202,6 +202,37 @@ def run(out_dir: Path):
     check("base", "root_diameter_px (kept degrees)", float(i.root_diameter_px), 2 * R_ROOT, .01)
     check("base", "root_diameter_eq_px", float(i.root_diameter_eq_px), 2 * R_ROOT, .005)
     check("base", "no lacunae in an intact root", int(i.n_lacunae), 0)
+    pd_ = r["prof_all"][(r["prof_all"].basis == "distance") & (r["prof_all"].scope == "section") &
+                        (r["prof_all"].image_file == "S.tif")]
+    check("base", f"distance basis: {P.DIST_BIN_UM:g} µm bins out to the epidermis (centre 157.5 µm -> bin 8)",
+          len(pd_), 8)
+
+    # missing tissue (2026-11-04, docs/development/loss_robustness.py): straight on the pipeline, no summarise
+    def files_after(remove, region_cut=None):
+        c, rg, m, _ = section()
+        c[remove] = 0
+        if region_cut is not None:
+            c[region_cut], rg[region_cut] = 0, 0
+        ctr = P.centre_of(rg, None)
+        pr, _, _ = P.derive(c, rg, m, 0, ctr)
+        fl = P.cell_files(c, pr, ctr, region=rg)
+        pr = pr.join(fl, on="label")
+        pr["true_layer"] = np.searchsorted(EDGES, np.hypot(pr.y - C[0], pr.x - C[1]), side="right")
+        return pr
+    pr = files_after((RR >= EDGES[0]) & (RR < EDGES[1]))
+    check("loss", "inner file gone all round: cortex still found (was: all 'unassigned')",
+          int((pr.tissue == "cortex").sum()), 7 * SECT)
+    k = pr[pr.tissue.isin(["cortex", "epidermis"])]
+    check("loss", "inner file gone: every cell keeps its file number (gap at the stele counted)",
+          float((np.floor(k.file + 0.5) == k.true_layer).mean()), 1.0)
+    pr = files_after((RR >= EDGES[3]) & (RR < EDGES[5]) & ((TH // 10) % 3 == 0))
+    k = pr[pr.tissue.isin(["cortex", "epidermis"]) & (pr.true_layer >= 6)]
+    check("loss", "aerenchyma (layers 4-5 gone, every 3rd sector): cells outside keep their file number",
+          float((np.floor(k.file + 0.5) == k.true_layer).mean()), 1.0)
+    pr = files_after(np.zeros_like(RR, bool), RR >= EDGES[7])
+    k = pr[pr.tissue.isin(["cortex", "epidermis"])]
+    check("loss", "outer layer + epidermis lost: file numbers unchanged (counted from the stele)",
+          float((np.floor(k.file + 0.5) == k.true_layer).mean()), 1.0)
     docs = []                                    # output documentation: every column described, run info written
     for wb in sorted((base / "results").glob("*.xlsx")):
         rd = pd.read_excel(wb, sheet_name="README")

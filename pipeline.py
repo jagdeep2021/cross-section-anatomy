@@ -309,6 +309,14 @@ def derive(cells: np.ndarray, region: np.ndarray, mx: np.ndarray, angle_deg: flo
         cortex = set(props.label) - in_stele - edge - air
         boundary = morphology.dilation(stele, morphology.disk(6)) & ~stele
         seed = (set(np.unique(cells[boundary])) - {0}) & cortex
+        if stele.any():
+            # also the first cell inside the root on each ray from the centre (every 1 deg): a gap at the stele
+            # (cortex pulled away, inner file lost in sectioning) would otherwise leave no seed on that side, and
+            # with a gap all round every cortical cell came out 'unassigned' (found 2026-11-04, loss_robustness.py)
+            inside = cortex & set(props.label[root[yi, xi]])
+            c0 = centre_of(region, centre)
+            for t in np.arange(0.5, 360, 1.0):
+                seed |= set(ray_cells(cells, c0, t, inside)[:1])
         layer = {c: 1 for c in seed}
         frontier, k = set(seed), 1
         while frontier:
@@ -370,9 +378,10 @@ RAY_ANGLES = np.arange(2.5, 360, 5)  # layer counts: one ray every 5 degrees (on
                                      # round angles so a ray does not run along a radial wall drawn at one
 
 
-def ray_cells(cells, centre, theta_deg: float, labels) -> list:
-    """Cells in `labels` crossed by one ray from the centre outwards, in order (first crossing). A cell counts when
-    the ray stays in it >= 2 px (a ray grazing a wall corner is not a crossing)."""
+def ray_runs(cells, centre, theta_deg: float, labels) -> list:
+    """(cell, start px from the centre, length px) for the cells in `labels` crossed by one ray from the centre
+    outwards, in order (first crossing). A cell counts when the ray stays in it >= 2 px (a ray grazing a wall corner
+    is not a crossing)."""
     t = np.radians(theta_deg)
     r = np.arange(0, max(cells.shape))
     y = np.round(centre[0] - r * np.sin(t)).astype(int)
@@ -384,12 +393,17 @@ def ray_cells(cells, centre, theta_deg: float, labels) -> list:
     start = np.r_[0, np.nonzero(lab[1:] != lab[:-1])[0] + 1]     # runs of the same label along the ray
     length = np.diff(np.r_[start, len(lab)])
     out, seen = [], set()
-    for l, n in zip(lab[start], length):
+    for l, s0, n in zip(lab[start], start, length):
         l = int(l)
         if n >= 2 and l in labels and l not in seen:
             seen.add(l)
-            out.append(l)
+            out.append((l, int(s0), int(n)))
     return out
+
+
+def ray_cells(cells, centre, theta_deg: float, labels) -> list:
+    """Cells in `labels` crossed by one ray from the centre outwards, in order (see ray_runs)."""
+    return [l for l, _, _ in ray_runs(cells, centre, theta_deg, labels)]
 
 
 def ray_layers(cells, region, props, centre, theta_deg: float) -> int:
@@ -400,9 +414,10 @@ def ray_layers(cells, region, props, centre, theta_deg: float) -> int:
 # ---------------------------------------------------------------- cell files (decided with Jagdeep 2026-11-03)
 # Cell file number per cell, from the same kind of rays that count CCFN: along each ray (every
 # FILE_STEP_DEG in the kept angles) the cortical and epidermal cells are numbered 1, 2 ... from the stele out; a cell's file is the
-# median of the numbers its rays gave it (file_rel: median of (k - 0.5) / n, n = cortical cells on that ray). A missed
-# or merged cell renumbers the files outside it on that ray only; the median over many rays absorbs it, and
-# n_cortical_layers_min / _max show when it can't.
+# median of the numbers its rays gave it (file_rel: median of (k - 0.5) / n, n = files on that ray). Since 2026-11-04
+# a gap on the ray (lacuna, missed cell, gap at the stele edge) counts as the cells it would have held, so cells
+# beyond it keep their number (docs/development/loss_robustness.py; on R1, lacuna sections went from epidermis =
+# file 9-11 to 14, matching the lacuna-free mature section S29 at 13-14).
 FILE_STEP_DEG = 0.5
 # The pattern = every cell outside the endodermis (decided with Jagdeep 2026-11-03): the epidermis is the outer part of
 # the same tissue, binned by position like any cell, peak anywhere (as in Tyler's maize-cells, which never split it
@@ -410,19 +425,39 @@ FILE_STEP_DEG = 0.5
 PATTERN_TISSUES = ("cortex", "epidermis")
 
 
-def cell_files(cells, props, centre, arcs=(), step: float = FILE_STEP_DEG, tissues=PATTERN_TISSUES) -> pd.DataFrame:
+def cell_files(cells, props, centre, arcs=(), step: float = FILE_STEP_DEG, tissues=PATTERN_TISSUES,
+               region=None, gaps: bool = True) -> pd.DataFrame:
     """index label -> file (median number, 1 = next to the stele; the epidermis is the outermost file), file_rel
     (0-1), n_rays. props: after exclude_sectors (only kept cells are numbered). CCFN (n_cortical_layers) stays
-    cortex only."""
+    cortex only.
+    gaps (2026-11-04): a gap on a ray (aerenchyma lacuna, a missed cell; with `region`, also a gap between the stele
+    edge and the first cell) counts as the cells it would have held, round(gap / the neighbouring cells' length on
+    the ray), so the cells beyond it keep their file number. Small gaps (walls, air spaces at junctions: < half a
+    cell) add nothing. Without it a lacuna two cells deep numbered every cell outside it two files too low."""
     cortex = set(props.label[props.tissue.isin(tissues)].astype(int))
+    r_st = radial_profile(region, centre)[0] if (gaps and region is not None and (region == 2).any()) else None
     nums, rels = {}, {}
     for t in np.arange(step / 2, 360, step):
         if arcs and in_arcs([t], arcs)[0]:
             continue
-        seq = ray_cells(cells, centre, t, cortex)
-        for k, l in enumerate(seq, 1):
-            nums.setdefault(l, []).append(k)
-            rels.setdefault(l, []).append((k - 0.5) / len(seq))
+        runs = ray_runs(cells, centre, t, cortex)
+        if not runs:
+            continue
+        ks, k = [], 0
+        for i, (l, s0, n) in enumerate(runs):
+            if gaps:
+                if i == 0:
+                    gap = s0 - r_st[int(t) % 360] if r_st is not None else 0
+                    local = n
+                else:
+                    gap = s0 - (runs[i - 1][1] + runs[i - 1][2])
+                    local = (n + runs[i - 1][2]) / 2
+                k += int(round(max(gap, 0) / local)) if local > 0 else 0
+            k += 1
+            ks.append(k)
+        for (l, _, _), kk in zip(runs, ks):
+            nums.setdefault(l, []).append(kk)
+            rels.setdefault(l, []).append((kk - 0.5) / k)
     return pd.DataFrame({"file": {l: float(np.median(v)) for l, v in nums.items()},
                          "file_rel": {l: float(np.median(v)) for l, v in rels.items()},
                          "n_rays": {l: len(v) for l, v in nums.items()}}, dtype=float)
@@ -571,13 +606,18 @@ NEEDS_STELE = ("n_cortical_layers", "n_cortical_layers_min", "n_cortical_layers_
                "aerenchyma_share", "lacuna_r_norm_mean")
 
 
+DIST_BIN_UM = 20.0   # basis "distance": bin width in µm from the stele edge (decided 2026-11-04)
+
+
 def sector_profile(props, n_bins: int = 10, ref=None, by: str = "position", n_files=None,
-                   tissues=PATTERN_TISSUES) -> pd.DataFrame:
+                   tissues=PATTERN_TISSUES, um_per_px: float = np.nan) -> pd.DataFrame:
     """The pattern from every kept cell of `tissues` (default: cortex + epidermis, one tissue).
     by = "position": r_norm in n_bins equal bins (1 = next to the stele; r_norm is normalised along each cell's own
          direction, so an uneven cortex is not mixed across layers); x = bin centre.
     by = "file": one row per cell file (props.file rounded; 1 = next to the stele; the epidermis is the outermost
          file); x = the median file_rel of its cells (0-1).
+    by = "distance": distance from the stele edge in DIST_BIN_UM bins (needs um_per_px); x = bin centre in µm. No
+         outer anchor, so it survives lost outer tissue (loss_robustness.py), but it carries root size: a cross-check.
     Median cell area per row, n per row; rel = median / ref (default: the median of these cells; pass the section's
     for a quarter). props: after exclude_sectors (and with file columns for by="file"). n_files: unused (kept for
     old callers)."""
@@ -591,6 +631,14 @@ def sector_profile(props, n_bins: int = 10, ref=None, by: str = "position", n_fi
         g = g.reindex(range(1, top + 1))
         rows = [{"bin": str(i), "x": r["x"], "n_cells": int(0 if pd.isna(r["size"]) else r["size"]),
                  "median_area_px": r["median"]} for i, r in g.iterrows()]
+    elif by == "distance":
+        w = DIST_BIN_UM / um_per_px if um_per_px and np.isfinite(um_per_px) else np.nan
+        c = c[np.isfinite(c.dist_from_stele_px)] if np.isfinite(w) else c.iloc[:0]
+        b = (np.clip(c.dist_from_stele_px, 0, None) // w).astype(int) + 1 if len(c) else pd.Series(dtype=int)
+        top = int(b.max()) if len(b) else 0
+        g = c.area_px.groupby(b).agg(["median", "size"]).reindex(range(1, top + 1))
+        rows = [{"bin": str(k), "x": (k - 0.5) * DIST_BIN_UM, "n_cells": int(0 if pd.isna(r["size"]) else r["size"]),
+                 "median_area_px": r["median"]} for k, r in g.iterrows()]
     else:
         b = (np.clip(c.r_norm, 0, 0.999) * n_bins).astype(int) + 1
         g = c.area_px.groupby(b).agg(["median", "size"]).reindex(range(1, n_bins + 1))

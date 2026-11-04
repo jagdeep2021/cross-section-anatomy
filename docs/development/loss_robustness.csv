@@ -1,0 +1,31 @@
+case,method,cells,mean_shift,max_shift,peak_shift
+aerenchyma (mid-cortex),position,336,0.0,0.0,0.0
+aerenchyma (mid-cortex),file,336,0.014739229024943309,0.11111111111111116,-0.0044999999999999485
+aerenchyma (mid-cortex),"file, gap-aware",336,0.0,0.0,0.0
+aerenchyma (mid-cortex),"file number, gap-aware",336,0.0,0.0,0.0
+aerenchyma (mid-cortex),distance,336,0.0,0.0,0.0
+aerenchyma (mid-cortex),Tyler min-max,336,0.0,0.0,0.0
+inner file missing,position,324,0.0,0.0,1.1102230246251565e-16
+inner file missing,file,324,0.05015432098765432,0.10416666666666666,0.018000000000000016
+inner file missing,"file, gap-aware",324,0.0,0.0,1.1102230246251565e-16
+inner file missing,"file number, gap-aware",324,0.0,0.0,0.0034999999999999476
+inner file missing,distance,324,0.0,0.0,1.1102230246251565e-16
+inner file missing,Tyler min-max,324,0.03478962234339202,0.08254215865889887,-0.0675
+outer lost all round,position,252,0.06992064028588796,0.14592771206468902,0.15300000000000002
+outer lost all round,file,252,0.1111111111111111,0.2063492063492064,0.13950000000000007
+outer lost all round,"file, gap-aware",252,0.1111111111111111,0.2063492063492064,0.13950000000000007
+outer lost all round,"file number, gap-aware",252,0.0,0.0,-0.03500000000000003
+outer lost all round,distance,252,0.0,0.0,-0.018000000000000016
+outer lost all round,Tyler min-max,252,0.0912923839069581,0.19707327391241092,0.10799999999999998
+outer lost on one side,position,342,0.008598792493235032,0.14592771206468902,-0.026999999999999913
+outer lost on one side,file,342,0.013645224171539962,0.2063492063492064,0.0
+outer lost on one side,"file, gap-aware",342,0.013645224171539962,0.2063492063492064,0.0
+outer lost on one side,"file number, gap-aware",342,0.0,0.0,0.0
+outer lost on one side,distance,342,0.0,0.0,0.0
+outer lost on one side,Tyler min-max,342,0.0,0.0,0.0
+"outer lost on one side, arc excluded",position,300,0.0,0.0,0.0
+"outer lost on one side, arc excluded",file,300,0.0,0.0,0.0
+"outer lost on one side, arc excluded","file, gap-aware",300,0.0,0.0,0.0
+"outer lost on one side, arc excluded","file number, gap-aware",300,0.0,0.0,0.0
+"outer lost on one side, arc excluded",distance,300,0.0,0.0,0.0
+"outer lost on one side, arc excluded",Tyler min-max,300,5.116816029425036e-06,0.00011420236949906514,0.0

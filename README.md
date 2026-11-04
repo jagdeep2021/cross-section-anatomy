@@ -139,7 +139,13 @@ Everything else is derived by `derive()`, so the editor and the summary always a
   metaxylem: whole section only. Editors draw quarter lines and excluded arcs on the cortex only (stele edge -> root edge).
 - **Cell file number (2026-11-03)**: rays every 0.5° in the kept angles number the cortical cells 1, 2 ... from the
   stele out; a cell's `file` = median of its numbers, `file_rel` = median of (k - 0.5) / n. Gives the second pattern
-  (`basis = file`: median area per file) next to the position pattern (`basis = position`).
+  (`basis = file`: median area per file) next to the position pattern (`basis = position`). A gap on a ray
+  (aerenchyma lacuna, missed cell, gap at the stele) counts as the cells it would have held (2026-11-04).
+- **Missing tissue (2026-11-04, `docs/development/loss_robustness.py`)**: position (the headline) survives aerenchyma
+  and lost inner files; only lost outer tissue stretches it, so exclude a torn arc, and `epidermis = no` flags loss
+  all round. `basis = distance` (20 µm bins from the stele edge, images with a scale) survives everything but carries
+  root size: a cross-check. Tyler's min-max fails lost inner files as well. A gap at the stele no longer turns the
+  cortex 'unassigned' (the trace also starts from the first cell on each ray).
 - **Epidermis is part of the tissue (decided with Jagdeep 2026-11-03)**: the pattern = every cell outside the
   endodermis, binned by position like any cell (the epidermis lands in the outermost bin / is the outermost file),
   peak searched over the whole curve; `rel` = bin median / the median of those cells. As in Tyler's maize-cells, and

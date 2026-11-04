@@ -87,7 +87,7 @@ COLUMNS = {
     "mx_total_area_um2": "total metaxylem area (µm²)",
     "bin": f"position: 1..{N_BINS} = r_norm bins (1 next to the stele); file: the cell file number (the epidermis is "
            "the outermost file)",
-    "x_position": "where the bin sits on the 0-1 axis (position: bin centre; file: median file_rel of its cells)",
+    "x_position": "where the bin sits: position = bin centre (0-1); file = median file_rel of its cells (0-1); distance = bin centre, µm from the stele edge",
     "n_cells": "cells in this bin (kept angles, cortex + epidermis); few_cells = TRUE below " + str(P.MIN_CELLS_PER_BIN),
     "few_cells": f"TRUE when the bin has fewer than {P.MIN_CELLS_PER_BIN} cells: read it with care",
     "median_area_um2": "median cell area in this bin (µm²)",
@@ -102,15 +102,19 @@ COLUMNS = {
     "rise_slope_rel": "(peak - first value) / distance: how fast cells grow from the stele to the peak",
     "decay_slope_rel": "slope just past the peak (over 20% of the range): how fast cells shrink outward",
     "outer_rise_rel": "last value - lowest value after the peak: an upturn at the epidermis",
-    "basis": "position = cells binned by r_norm (0 stele edge - 1 root edge); file = cells grouped by cortical cell "
-             "file number (1 = next to the stele)",
+    "basis": "position = cells binned by r_norm (0 stele edge - 1 root edge; the headline); file = cells grouped by "
+             "cell file number (1 = next to the stele; gaps such as lacunae counted as the cells they would hold); "
+             f"distance = {P.DIST_BIN_UM:g} µm bins of distance from the stele edge (images with a scale only): survives "
+             "lost outer tissue but carries root size, a cross-check. For distance, x_position and peak_pos are µm "
+             "from the stele edge and slopes are per µm",
     "scope": "section = all kept cells of the image; Q1..Q4 = one quarter (Q1 0-90 deg top right, counter-clockwise); "
              "quarter_mean / quarter_sd = mean and SD of the quarters' features",
     "n_quarters": "quarters averaged (a quarter needs >= 45 degrees kept)",
     "kept_deg": "degrees kept in this scope",
     "quarter": "quarter of the cell / lacuna centre: 1 = 0-90 deg (top right), counter-clockwise",
     "quarters_used": "quarters with >= 45 degrees kept (used for quarter features)",
-    "file": "cortical cell file number: median of the numbers given by rays every 0.5 deg (1 = next to the stele)",
+    "file": "cell file number: median of the numbers given by rays every 0.5 deg (1 = next to the stele); a gap on a "
+            "ray (lacuna, missed cell, gap at the stele) counts as the cells it would have held",
     "file_rel": "relative file position: median over rays of (k - 0.5) / cortical cells on that ray",
     "n_rays": "rays that crossed the cell (file number rests on them)",
     "epidermis": "from samples.xlsx: yes = intact, no = lost (outermost layer is outer cortex), empty = not checked",
@@ -166,7 +170,8 @@ def unit_of(col):
     if c == "um_per_px":
         return "µm per pixel"
     if c.endswith(("_abs",)) or "_abs" in c:
-        return "area_unit per unit position" if "slope" in c else ("0-1 position" if "pos" in c else "area_unit")
+        return "area_unit per unit position (per µm for basis distance)" if "slope" in c else \
+            ("0-1 position (µm for basis distance)" if "pos" in c else "area_unit")
     if c.endswith("_um2"):
         return "µm²"
     if c.endswith("_um"):
@@ -185,10 +190,12 @@ def unit_of(col):
         return "0-1 (file position, stele side 0)"
     if c == "quarter":
         return "1-4"
-    if "pos" in c or c.startswith(("r_norm", "lacuna_r_norm")) or c == "x_position":
+    if c == "x_position" or c.startswith("peak_pos"):
+        return "0-1 position (0 stele edge, 1 root edge); µm from the stele edge for basis distance"
+    if "pos" in c or c.startswith(("r_norm", "lacuna_r_norm")):
         return "0-1 position (0 stele edge, 1 root edge)"
     if "slope" in c:
-        return "relative size per unit position"
+        return "relative size per unit position (per µm for basis distance)"
     if c in ("rel", "fitted", "epidermis_rel") or c.startswith(("peak_height", "outer_rise")):
         return "x the image's median cell (cortex + epidermis)"
     if "share" in c:
@@ -433,7 +440,7 @@ def main(anatomy_dir: Path, image_figures: bool = False):
         whole = {k: tr[k] for k in ("root_area_px", "root_diameter_eq_px", "stele_area_px", "mx_n", "mx_mean_area_px",
                                     "mx_total_area_px")}
 
-        fl = P.cell_files(cells, props, centre, arcs)
+        fl = P.cell_files(cells, props, centre, arcs, region=region)
         props = props.join(fl, on="label")
         props["quarter"] = P.quarter_of(np.degrees(props.angle_rad))
         c_all = props[props.tissue.isin(P.PATTERN_TISSUES)]          # rel reference: the tissue median
@@ -445,17 +452,19 @@ def main(anatomy_dir: Path, image_figures: bool = False):
         unit = "um2" if um else "px"
         base = {**meta, "tech_rep": tech, "status": status}
         prof = None
-        for basis in ("position", "file"):
+        for basis in ("position", "file", "distance"):
+            if basis == "distance" and not um:                 # µm bins: needs the scale
+                continue
             qfeat = []
             for scope, (sub, kdeg) in scopes.items():
-                pr = P.sector_profile(sub, N_BINS, ref, basis, st["n_cortical_layers"])
+                pr = P.sector_profile(sub, N_BINS, ref, basis, st["n_cortical_layers"], um_per_px=s)
                 pr["median_area_um2"] = pr.median_area_px * s * s
                 if basis == "position" and scope == "section":
                     prof = pr
                 prof_rows.append(pr.rename(columns={"x": "x_position"}).assign(**base, basis=basis, scope=scope))
                 allp = pr.dropna(subset=["rel"])
                 w_all = allp.n_cells.where(allp.n_cells > 0)
-                pc = P.sector_profile(sub, N_BINS, ref, basis, tissues=("cortex",)).dropna(subset=["rel"])
+                pc = P.sector_profile(sub, N_BINS, ref, basis, tissues=("cortex",), um_per_px=s).dropna(subset=["rel"])
                 ycol = "median_area_um2" if um else "median_area_px"
                 e_sub = sub[sub.tissue == "epidermis"]
                 f = {**base, "basis": basis, "scope": scope, "area_unit": unit, "kept_deg": kdeg,
@@ -573,7 +582,7 @@ def main(anatomy_dir: Path, image_figures: bool = False):
             "profile_features": (profile_features, "one row per image x basis (position | file) x scope (section, "
                                  "Q1..Q4, quarter_mean, quarter_sd): smoothing spline (GCV) through the bin medians "
                                  "(weights = cells per bin); features read off the curve. The pattern = every cell "
-                                 "outside the endodermis (cortex + epidermis, one tissue). _rel = relative size (the "
+                                 "outside the endodermis (cortex + epidermis, one tissue). Basis distance = µm from the stele edge (cross-check for lost outer tissue). _rel = relative size (the "
                                  "main pattern), _abs = the same in area_unit, _rel_cortex = without the cells tagged "
                                  "epidermis (a check). "
                                  "peak_height, peak_pos; rise_slope = (peak - first) / distance; decay_slope = local, "

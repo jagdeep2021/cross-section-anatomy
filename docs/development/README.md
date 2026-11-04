@@ -164,3 +164,20 @@ Rooh started on 2026-10-27 as `cross_section_anatomy`, was briefly renamed JadNa
 - **Lacunae, first real positives:** mature sections S34 (6) and S39 (8) show lacunae in the mid-cortex, clear of the stele and the epidermis. That is the detection working on real aerenchyma, and the position the hypothesis predicts. Figure drawn by the scratch QC script; to be redrawn from the repo for the decision document.
 - **Pattern along the root (descriptive, one root):** peak relative size rises from about 1.1 at S09–S13 to about 2.3 at S29–S39, with the peak at r_norm 0.25–0.33 in mature sections.
 - **Checks:** 156 of 156 pass.
+
+## 2026-11-04 · Missing tissue: which way of placing cells survives it
+- **Question (Jagdeep):** if the inner files are missing, the mid-cortex has aerenchyma, or the outer files are gone, is the pattern still the same? Is Tyler's min-max immune because it goes from the innermost to the outermost cell?
+- **Test:** ![Missing tissue vs method](loss_robustness.png) drawn by `loss_robustness.py` (numbers in `loss_robustness.csv`). One synthetic root, damaged five ways; the surviving cells did not move, so any shift is the method being fooled. Tyler's min-max is given the stele centre and per-quarter scaling, so the comparison is generous to it.
+- **Result:**
+  - **Aerenchyma:** position, distance and Tyler are not fooled. The old file count was: cells beyond a lacuna were numbered too low.
+  - **Inner file lost all round:** position is not fooled (0 is the stele edge). Tyler's peak moves by −0.07 (his 0 becomes the first surviving cell).
+  - **Outer tissue lost all round:** position (+0.15) and Tyler (+0.11) are both stretched. File number and distance are not.
+  - **Outer tissue lost on one side:** position moves a little (−0.03 peak), Tyler not (the intact side sets his maximum). Excluding the torn arc brings position back to 0.
+  - **So Tyler's method is not immune:** it shares position's weakness (outer loss) and adds one (inner loss).
+- **Bug found by the test:** with a gap between the stele and the cortex all the way round, Rooh found **no cortex**: every cell came out "unassigned", because the cortex was traced only from cells touching the stele. The trace now also starts from the first cell inside the root on each 1° ray. On R1 this changed only S21 (the section whose stele cannot be outlined: 5 more cells).
+- **Decision:**
+  - Position stays the headline.
+  - **File numbers count gaps:** a gap on a ray (lacuna, missed cell, gap at the stele edge) counts as round(gap / the neighbouring cells' length) cells. Real-data check on R1: lacuna-free sections change by 0 to +0.75 files; the lacuna sections S30, S34 and S39 go from epidermis = file 9–11 to 14, matching the lacuna-free mature S29 (13–14). The old count lost 3–5 files to aerenchyma.
+  - **New basis `distance`:** 20 µm bins from the stele edge (images with a scale). It survives every case but carries root size, so it is a cross-check, not the headline.
+- **Open (Jagdeep):** CCFN (`n_cortical_layers`) still counts only the cells present on each ray, so aerenchyma lowers it: R1 mature sections with lacunae read 8–9, while S29 without lacunae reads 12. Report a gap-aware CCFN beside it?
+- **Checks:** 161 of 161 pass (new: cortex found with an inner gap all round; file numbers unchanged after inner loss, aerenchyma and outer loss; distance bins).
