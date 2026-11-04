@@ -688,9 +688,10 @@ def pixel_position(region: np.ndarray, centre):
     return (r - r_st[d]) / np.maximum(r_rt[d] - r_st[d], 1), deg
 
 
-def lacunae(cells, region, mx, props, centre, arcs=(), n_bins: int = 10):
-    """(per-lacuna table, aerenchyma profile per r_norm bin, n_gaps_missed_cell). props: after exclude_sectors. Only
-    lacunae whose centre is in the kept angles count; the profile = lacuna pixels / cortex pixels per bin, kept angles."""
+def lacunae(cells, region, mx, props, centre, arcs=(), n_bins: int = 10, mask: bool = False):
+    """(per-lacuna table, aerenchyma profile per r_norm bin, n_gaps_missed_cell[, label image if mask]). props: after
+    exclude_sectors. Only lacunae whose centre is in the kept angles count; the profile = lacuna pixels / cortex pixels
+    per bin, kept angles. mask=True also returns the lacunae as a label image (the editors shade them)."""
     root, stele = region >= 1, region == 2
     c = props[props.tissue == "cortex"]
     med = float(c.area_px.median()) if len(c) else np.nan
@@ -730,7 +731,15 @@ def lacunae(cells, region, mx, props, centre, arcs=(), n_bins: int = 10):
     prof = pd.DataFrame({"bin": np.arange(1, n_bins + 1), "x": (np.arange(n_bins) + 0.5) / n_bins,
                          "cortex_px": tot, "lacuna_px": hole,
                          "lacuna_share": np.where(tot > 0, hole / np.maximum(tot, 1), np.nan)})
-    return table, prof, n_gaps
+    return (table, prof, n_gaps, lab) if mask else (table, prof, n_gaps)
+
+
+def lacuna_traits(table, n_gaps: int, cortex_area_kept_px) -> dict:
+    """Per-image aerenchyma numbers from lacunae() (Make results, the web and the desktop share them)."""
+    area = int(table.area_px.sum()) if len(table) else 0
+    return {"n_lacunae": len(table), "lacuna_area_px": area, "n_gaps_missed_cell": n_gaps,
+            "aerenchyma_share": area / cortex_area_kept_px if cortex_area_kept_px else np.nan,
+            "lacuna_r_norm_mean": float(np.average(table.r_norm, weights=table.area_px)) if len(table) else np.nan}
 
 
 def layer_image(cells: np.ndarray, props: pd.DataFrame) -> np.ndarray:

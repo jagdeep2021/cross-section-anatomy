@@ -490,10 +490,7 @@ def main(anatomy_dir: Path, image_figures: bool = False):
                                       "n_quarters": len(q), **q[cols].agg(agg).to_dict()})
         e_all = props[props.tissue == "epidermis"]
         lac, aprof, n_gaps = P.lacunae(cells, region, mx, props, centre, arcs, N_BINS)
-        lac_area = int(lac.area_px.sum()) if len(lac) else 0
-        lt = {"n_lacunae": len(lac), "lacuna_area_px": lac_area, "n_gaps_missed_cell": n_gaps,
-              "aerenchyma_share": lac_area / st["cortex_area_kept_px"] if st["cortex_area_kept_px"] else np.nan,
-              "lacuna_r_norm_mean": float(np.average(lac.r_norm, weights=lac.area_px)) if len(lac) else np.nan}
+        lt = P.lacuna_traits(lac, n_gaps, st["cortex_area_kept_px"])
         lac_rows.append(lac.assign(**base, area_um2=lac.area_px * s * s))
         aer_rows.append(aprof.assign(**base))
         if not st["stele_found"]:                       # no stele: whole-section stele traits blank too, not 0

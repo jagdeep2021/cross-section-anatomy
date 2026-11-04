@@ -382,7 +382,8 @@ const TRAITS = [   // label, value from the image's traits, kind (unit once the 
   ["Cortical cells", t => t.n_cortex_cells, "n"], ["Cortical layers", t => t.n_cortical_layers, "n"],
   ["Cortex width", t => t.cortex_width_px, "len"], ["Root area", t => t.root_area_px, "area"],
   ["Stele area", t => t.stele_area_px, "area"], ["Vessels", t => t.mx_n, "n"],
-  ["Vessel area", t => t.mx_mean_area_px, "area"], ["Air space area", t => t.air_space_total_area_px, "area"]];
+  ["Vessel area", t => t.mx_mean_area_px, "area"], ["Air space area", t => t.air_space_total_area_px, "area"],
+  ["Lacunae", t => t.n_lacunae, "n"], ["Aerenchyma (% of cortex)", t => t.aerenchyma_share == null ? null : 100 * t.aerenchyma_share, "n"]];
 function median(v) { if (!v.length) return null; const a = [...v].sort((p, q) => p - q), m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; }
 async function loadTraits() {
   try { S.all = await api(`/api/projects/${enc(S.project)}/all_traits`); } catch (_) { S.all = []; }

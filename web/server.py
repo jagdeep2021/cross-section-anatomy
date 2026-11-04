@@ -216,7 +216,7 @@ def gray_png(d: Path, rel: str) -> Path:
 
 
 OVERLAY = {"cell": (80, 255, 120, 200), "root": (255, 220, 0, 255), "stele": (0, 220, 255, 255),
-           "mx": (255, 60, 60, 110), "stele_fill": (0, 220, 255, 85)}
+           "mx": (255, 60, 60, 110), "lacuna": (255, 140, 0, 120), "stele_fill": (0, 220, 255, 85)}
 
 
 def overlay_png(d: Path, rel: str, part: str) -> Path:
@@ -234,6 +234,12 @@ def overlay_png(d: Path, rel: str, part: str) -> Path:
         rgba[find_boundaries(cells, mode="inner") & (cells > 0)] = OVERLAY["cell"]
     else:
         rgba[region == 2] = OVERLAY["stele_fill"]      # the stele is an area: lightly shaded, its cells still visible
+        if (region == 2).any():                        # aerenchyma lacunae as Make results finds them (kept angles)
+            settings = json.loads((d / "anatomy" / "settings.json").read_text())
+            centre = P.centre_of(region, P.load_centre(npz))
+            arcs = P.load_sectors(npz, float(settings.get("quadrant_angle_deg", 0)))
+            props = P.exclude_sectors(P.derive(cells, region, mx, 0, centre)[0], arcs)
+            rgba[P.lacunae(cells, region, mx, props, centre, arcs, mask=True)[3] > 0] = OVERLAY["lacuna"]
         rgba[mx > 0] = OVERLAY["mx"]
         w = max(2, round(max(cells.shape) / 600))      # root and stele edges thick enough to see on a whole-image view
         edge = lambda m: ndi.binary_dilation(find_boundaries(m, mode="inner") & m, iterations=w) & m
@@ -430,6 +436,10 @@ def traits(name: str, rel: str, u: dict = Depends(user)):
     props, _, tr = P.derive(cells, region, mx, 0, centre)
     props = P.exclude_sectors(props, arcs)
     tr.update(P.sector_traits(cells, region, props, centre, arcs))   # cortex: kept angles; stele, vessels: whole
+    lac, _, n_gaps = P.lacunae(cells, region, mx, props, centre, arcs)
+    tr.update(P.lacuna_traits(lac, n_gaps, tr["cortex_area_kept_px"]))
+    if not tr.get("stele_found", (region == 2).any()):   # as in the results: no stele -> blank, not 0
+        tr.update({k: None for k in P.NEEDS_STELE if k in tr})
     tr.pop("cortex_area_px", None)
     tr["status"] = status
     # for drawing the excluded arcs on the page (as review.py does)
