@@ -87,6 +87,10 @@ Read this at the start of every session. Claude Code loads it automatically.
    synthetic case and a flag (a gap at the stele edge on more than X% of rays).
 4. The lacuna rule cannot tell aerenchyma from patches of cells Cellpose missed; reviewers override by hand
    (`n_lacunae_overridden`).
+5. Provenance stops at Make results: `run_info` has the Rooh commit, but masks (`.npz`) don't record the version
+   that outlined them or last edited them, `run_info` lacks the Cellpose version/model, the page doesn't show the
+   live version, and `run_info` still links the old repo name. Proposal: stamp `outlined_with` / `edited_with` in
+   each npz (per-image columns), Cellpose version in `run_info`, version in the page footer.
 
 ## Working with this lab
 
