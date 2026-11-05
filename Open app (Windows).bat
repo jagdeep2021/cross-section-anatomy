@@ -12,7 +12,7 @@ if errorlevel 1 (
   copy /y requirements.txt .venv\installed_requirements.txt >nul
 )
 :run
-.venv\Scripts\python.exe -W ignore review.py
+.venv\Scripts\python.exe -W ignore web\server.py local
 if errorlevel 1 pause
 exit /b 0
 :fail
