@@ -345,7 +345,8 @@ async function setScale(all) {
   if (!(v > 0)) return showErr("Type the scale first (µm per pixel).");
   if (!all && !im) return showErr("Open an image first.");
   try { const r = await api(`/api/projects/${enc(S.project)}/scale`, form({ um_per_px: v, group: "", rel: all ? "" : im.image }));
-        $("scaleMsg").textContent = `${v} µm/px set for ${r.set} image(s).`; await refresh(); } catch (e) { showErr(e); }
+        $("scaleMsg").textContent = `${v} µm/px set for ${r.set} image(s).`; await refresh();
+        imgFigure(); await loadTraits(); } catch (e) { showErr(e); }   // graph + bars in µm now, not on the next image
 }
 $("scaleAll").onclick = () => setScale(true);
 $("scaleImg").onclick = () => setScale(false);
