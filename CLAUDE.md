@@ -55,3 +55,41 @@ Read this at the start of every session. Claude Code loads it automatically.
 - Renaming an output column breaks anyone's analysis that reads it. Add the new one and leave the old one for a release, or say so in the log.
 - Changing a threshold changes every past result. That needs a log entry with before / after numbers on real data.
 - `examples/` masks are shipped data: replace them only on purpose, and say so in the commit.
+
+## Map (where a change goes)
+
+- `pipeline.py`: every measurement and edit rule (`derive`, sectors, `cell_files`, `lacunae`, `lacuna_edit`, …).
+- `run_batch.py`: outlining (Cellpose); `locate` decides which folder is the experiment.
+- `summarise.py`: Make results; `COLUMNS` describes every output column.
+- `pattern_plots.py`: all graphs, including the editor's live plot and file colours.
+- `web/server.py` + `web/static/index.html`: **the only editor**. The website runs it on Modal (`cloud.py`); the
+  desktop runs the same page on the user's computer (`web/server.py local`, started by the Open app launchers: no
+  accounts, a key cookie, projects = folders opened in place). `review.py` (napari) is a frozen fallback.
+- Web display caches: `<project>/.cache/<code fingerprint>/`, refreshed when the measurement code changes.
+
+## Environment
+
+- Hellbender (Linux, glibc 2.28): a new compiled dependency must resolve for `manylinux_2_28`
+  (`uv pip compile requirements.txt --python-version 3.14 --python-platform x86_64-manylinux_2_28`). PyQt6 is pinned
+  6.9.1 on Linux for this; the Linux launcher fetches libxcb-cursor into `.venv`.
+- `cloud.py` builds the GPU image from `requirements.txt`: a new package there rebuilds it (a failed rebuild took the
+  site down on 2026-11-04). Server-only packages go in `SERVER_PKGS`.
+- The page has no build step: check it with `node --check` on its extracted `<script>`.
+- Never run `modal deploy`: Jagdeep deploys after merging.
+
+## Open problems (2026-11-04, most important first)
+
+1. The automatic stele misses on brightfield JPGs (the root outline is already fixed by inversion). Every position
+   and file number starts at the stele.
+2. Gap-aware CCFN: `n_cortical_layers` counts only cells present, so aerenchyma lowers it (B73 R1: 8–9 with lacunae vs
+   12). Proposal: the median file number of the outermost cortical file over kept rays, added beside it.
+3. Cortex pulled away from the stele: the gap-aware file rule counts the gap as cells (phantom files). Needs a
+   synthetic case and a flag (a gap at the stele edge on more than X% of rays).
+4. The lacuna rule cannot tell aerenchyma from patches of cells Cellpose missed; reviewers override by hand
+   (`n_lacunae_overridden`).
+
+## Working with this lab
+
+Build and run things rather than describing them; judge a change on rendered images. Name a stopping rule before a
+sweep. When there are several variants, recommend one and say why. Argue the statistics: deferring is the failure.
+Report failures plainly, with the output.
