@@ -20,8 +20,10 @@ APP, CPU = "cross-section-anatomy", 4   # the root/stele steps after Cellpose ru
 GPU = ["L4", "A10G", "T4"]   # first free one wins: L4 is ~3x a T4 for ~1.4x the price, but on 2026-10-31 no L4 was
                              # free for 5+ min and measuring sat at "Waiting for the GPU"
 HERE = Path(__file__).parent
+SERVER_PKGS = ("fastapi", "uvicorn", "python-multipart")   # in requirements.txt for the desktop (server.py local)
 PKGS = ([l.strip() for l in (HERE / "requirements.txt").read_text().splitlines()
-         if l.strip() and l.split("==")[0] not in ("napari", "magicgui", "PyQt6")]  # no window on the server
+         if l.strip() and l.split("==")[0] not in ("napari", "magicgui", "PyQt6") + SERVER_PKGS]  # no window on the
+        # server; the web server's own packages go only into the web image (adding them here rebuilt the GPU image)
         if modal.is_local() else [])            # read when building on this computer; the server has no requirements.txt
 
 app = modal.App(APP)
@@ -83,6 +85,8 @@ def propose(path, diameter=None):
 #   python cloud.py invite someone@missouri.edu [--admin]   -> prints that person's login link (keep it private)
 
 WEB_PKGS = [p for p in PKGS if p.split("==")[0] not in ("torch", "cellpose")] + \
+    ([l.strip() for l in (HERE / "requirements.txt").read_text().splitlines()
+      if l.split("==")[0].strip() in SERVER_PKGS] if modal.is_local() else []) + \
     ([l.strip() for l in (HERE / "web/requirements-web.txt").read_text().splitlines()
       if l.strip() and not l.startswith("-r")] if modal.is_local() else [])
 
