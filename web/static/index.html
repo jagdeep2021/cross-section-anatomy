@@ -89,6 +89,7 @@
   .tools button.on { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
   #filesBtn.on { background:linear-gradient(90deg,#30123b,#28bbec,#a2fc3c,#fb8022,#7a0403); color:#fff; border-color:#888; }
   #aerBtn.on { background:#ff8c00; color:#111; border-color:#ff8c00; }
+  #scaleRuler.on { background:#ff3fd2; color:#111; border-color:#ff3fd2; }
   .tools button.on kbd { color:inherit; opacity:.7; }
   .tip { font-size:12px; color:var(--ink); margin-top:8px; min-height:2.9em; }
   .keys { font-size:11.5px; color:var(--muted); margin-top:4px; line-height:1.6; }
@@ -140,6 +141,9 @@
   <div class="grp" data-proj hidden>
     <span class="lab">µm/px</span>
     <input type="number" id="scale" step="0.0001" min="0" placeholder="0.7194" style="width:76px">
+    <button id="scaleRuler" title="Measure the scale on the image: drag along the scale bar, then type its length (M)">📏</button>
+    <span id="rulerBox" hidden>= <input type="number" id="rulerUm" min="0" step="any" value="100" style="width:58px" title="The scale bar's length"> µm
+      <button id="rulerSet">Set</button></span>
     <button id="scaleAll" title="This scale for every image">All</button><button id="scaleImg" title="This scale for this image only">Image</button>
   </div>
   <div class="grp" data-proj hidden>
@@ -169,7 +173,7 @@
 <main id="view">
   <canvas id="cv"></canvas>
   <div class="empty" id="empty">Pick a project, add images, then Outline new images.</div>
-  <div class="hint"><span>drag = draw · click = add · ⌘/Ctrl = remove · Space-drag = move · scroll = zoom · F = fit · O = outlines · Shift-A = aerenchyma · Shift-F = cell files · , . = images · Shift-S = save + next</span></div>
+  <div class="hint"><span>drag = draw · click = add · ⌘/Ctrl = remove · Space-drag = move · scroll = zoom · F = fit · O = outlines · M = measure scale · Shift-A = aerenchyma · Shift-F = cell files · , . = images · Shift-S = save + next</span></div>
 </main>
 
 <section class="side" style="border-top:0">
@@ -461,6 +465,17 @@ function draw() {
     if (ov && S.showOv) { ctx.globalAlpha = +$(op).value; ctx.drawImage(ov, x, y, ov.width * s, ov.height * s); ctx.globalAlpha = 1; }
   if (S.ovL && S.showOv && S.showAer) ctx.drawImage(S.ovL, x, y, S.ovL.width * s, S.ovL.height * s);
   if (S.sectors && S.showOv) drawSectors();
+  if (S.ruler && S.ruler.a && S.ruler.b) {        // the scale line: magenta, end ticks, its length in px
+    const [ay, ax] = S.ruler.a, [by, bx] = S.ruler.b, P1 = [x + ax * s, y + ay * s], P2 = [x + bx * s, y + by * s];
+    const n = Math.hypot(P2[0] - P1[0], P2[1] - P1[1]) || 1, ux = -(P2[1] - P1[1]) / n * 7, uy = (P2[0] - P1[0]) / n * 7;
+    ctx.strokeStyle = "#ff3fd2"; ctx.lineWidth = 2; ctx.setLineDash([]); ctx.beginPath();
+    ctx.moveTo(...P1); ctx.lineTo(...P2);
+    for (const [px, py] of [P1, P2]) { ctx.moveTo(px - ux, py - uy); ctx.lineTo(px + ux, py + uy); }
+    ctx.stroke();
+    const t = `${rulerLen().toFixed(1)} px`; ctx.font = "12px system-ui"; const w = ctx.measureText(t).width;
+    ctx.fillStyle = "rgba(0,0,0,0.65)"; ctx.fillRect((P1[0] + P2[0]) / 2 - w / 2 - 4, (P1[1] + P2[1]) / 2 - 24, w + 8, 17);
+    ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.fillText(t, (P1[0] + P2[0]) / 2, (P1[1] + P2[1]) / 2 - 11); ctx.textAlign = "start";
+  }
   if (S.pen && S.pen.moved && S.pen.pts.length > 1) {   // the outline being drawn (image px -> screen)
     ctx.beginPath();
     S.pen.pts.forEach(([py, px], k) => k ? ctx.lineTo(x + px * s, y + py * s) : ctx.moveTo(x + px * s, y + py * s));
@@ -555,9 +570,43 @@ cv.addEventListener("wheel", e => {
   const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top, f = Math.exp(-e.deltaY * 0.0015);
   S.view.x = mx - (mx - S.view.x) * f; S.view.y = my - (my - S.view.y) * f; S.view.s *= f; draw();
 }, { passive: false });
+// ---------------------------------------------------------------- scale from the image: a line along the scale bar
+// Drag along the bar (within 3 degrees of level or upright it snaps straight; hold Alt for any angle), type its
+// length in µm, Set: µm/px goes into the box. All / Image then apply it, as for a typed scale.
+function rulerMode(on) {
+  S.ruler = on ? { a: null, b: null, drag: false } : null;
+  $("scaleRuler").classList.toggle("on", !!on); $("rulerBox").hidden = true;
+  cv.style.cursor = on ? "crosshair" : "";
+  $("scaleMsg").textContent = on ? "Drag along the scale bar (Esc cancels)." : "";
+  draw();
+}
+const rulerLen = () => S.ruler && S.ruler.a && S.ruler.b ? Math.hypot(S.ruler.b[0] - S.ruler.a[0], S.ruler.b[1] - S.ruler.a[1]) : 0;
+function rulerSnap(a, b, free) {
+  if (free) return b;
+  const dy = b[0] - a[0], dx = b[1] - a[1], deg = Math.abs(Math.atan2(dy, dx) * 180 / Math.PI);
+  if (Math.min(deg, 180 - deg) <= 3) return [a[0], b[1]];      // level
+  if (Math.abs(deg - 90) <= 3) return [b[0], a[1]];            // upright
+  return b;
+}
+$("scaleRuler").onclick = () => rulerMode(!S.ruler);
+$("rulerSet").onclick = () => {
+  const um = parseFloat($("rulerUm").value), px = rulerLen();
+  if (!(um > 0) || !(px > 0)) return showErr("Draw the line and type the bar's length in µm.");
+  const v = +(um / px).toPrecision(5);
+  $("scale").value = v;
+  try { localStorage.setItem("csa.rulerUm", String(um)); } catch (_) {}
+  rulerMode(false);
+  $("scaleMsg").textContent = `${um} µm over ${px.toFixed(1)} px = ${v} µm/px. Press All (every image) or Image (this one).`;
+};
+$("rulerUm").onkeydown = e => { if (e.key === "Enter") $("rulerSet").click(); };
+try { const u = localStorage.getItem("csa.rulerUm"); if (u) $("rulerUm").value = u; } catch (_) {}
+
 cv.addEventListener("pointerdown", e => {
   e.preventDefault();                            // no text selection while drawing
   cv.setPointerCapture(e.pointerId);
+  if (S.ruler && S.gray && !(S.space || e.button === 1 || e.button === 2)) {
+    S.ruler.a = S.ruler.b = toImg(e); S.ruler.drag = true; $("rulerBox").hidden = true; draw(); return;
+  }
   const panning = S.space || e.button === 1 || e.button === 2 || !editable();   // Space, middle or right button: move
   if (panning) { S.pan = { x: e.clientX, y: e.clientY }; cv.classList.add("pan"); return; }
   showErr("");
@@ -565,6 +614,7 @@ cv.addEventListener("pointerdown", e => {
             live: true, moved: false, x0: e.clientX, y0: e.clientY, last: [e.clientX, e.clientY] };
 });
 cv.addEventListener("pointermove", e => {
+  if (S.ruler && S.ruler.drag) { S.ruler.b = rulerSnap(S.ruler.a, toImg(e), e.altKey); draw(); return; }
   if (S.pan) { S.view.x += e.clientX - S.pan.x; S.view.y += e.clientY - S.pan.y; S.pan = { x: e.clientX, y: e.clientY }; draw(); return; }
   if (!S.pen || !S.pen.live) return;
   if (!S.pen.moved && Math.hypot(e.clientX - S.pen.x0, e.clientY - S.pen.y0) >= 4) S.pen.moved = !(S.target === "Sectors" && S.pen.remove);
@@ -572,6 +622,12 @@ cv.addEventListener("pointermove", e => {
   if (S.pen.moved && Math.hypot(e.clientX - lx, e.clientY - ly) >= 3) { S.pen.pts.push(toImg(e)); S.pen.last = [e.clientX, e.clientY]; draw(); }
 });
 cv.addEventListener("pointerup", () => {
+  if (S.ruler && S.ruler.drag) {
+    S.ruler.drag = false;
+    if (rulerLen() < 5) { $("scaleMsg").textContent = "Too short: drag from one end of the scale bar to the other."; return; }
+    $("rulerBox").hidden = false; $("rulerUm").focus(); $("rulerUm").select();
+    $("scaleMsg").textContent = `${rulerLen().toFixed(1)} px. Type the bar's length, then Set.`; draw(); return;
+  }
   if (S.pan) { S.pan = null; if (!S.space) cv.classList.remove("pan"); return; }
   const p = S.pen;
   if (!p || !p.live) return;
@@ -598,6 +654,8 @@ addEventListener("keydown", e => {
   if (e.key === "S" && e.shiftKey) saveNext();
   if (e.key === "o" || e.key === "O") { S.showOv = !S.showOv; draw(); }
   if (e.key === "A" && e.shiftKey) toggleAer();
+  if ((e.key === "m" || e.key === "M") && !e.shiftKey && S.gray) rulerMode(!S.ruler);
+  if (e.key === "Escape" && S.ruler) rulerMode(false);
   if (e.key === "F" && e.shiftKey) { toggleFiles(); return; }
   if ((e.key === "f" || e.key === "F") && !e.shiftKey && S.gray) { fit(); draw(); }
   if (KEYS[e.key]) setTarget(KEYS[e.key]);
