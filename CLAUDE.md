@@ -18,7 +18,7 @@ Read this at the start of every session. Claude Code loads it automatically.
 | Figures behind a decision | `docs/development/`, beside the script that draws them | without their script |
 | Known-answer tests | `tests/check_numbers.py` (synthetic sections, exact geometry) | skipped |
 | Thresholds | named constants at the top of their section in `pipeline.py` | bare numbers inside functions |
-| **Anything an editor shows or does** | both editors in the same PR: `review.py` (desktop) and `web/` (Jagdeep, 2026-11-04); drawing shared in `pattern_plots.py` | one editor only |
+| **Anything an editor shows or does** | `web/` only: the desktop runs the same page (`server.py local`, 2026-11-04). `review.py` (napari) is the frozen classic fallback; drawing shared in `pattern_plots.py` | a feature in `review.py` only |
 | Rules shared by desktop and web | `pipeline.py` (`derive`, `click_edit`, `outline_edit`, `sector_edit` …) | copied into `review.py` or `web/server.py` |
 
 ## Before a session
