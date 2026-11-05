@@ -77,6 +77,10 @@
   main { position:relative; overflow:hidden; background:#0d0d0c; user-select:none; -webkit-user-select:none; }
   main canvas { touch-action:none; position:absolute; inset:0; width:100%; height:100%; cursor:crosshair; }
   main canvas.pan { cursor:grab; }
+  main .rulerpop { position:absolute; z-index:5; display:flex; gap:6px; align-items:center; padding:6px 8px; font-size:13px;
+                   color:#fff; background:rgba(20,20,20,.94); border:1px solid #ff3fd2; border-radius:6px; white-space:nowrap; }
+  main .rulerpop[hidden] { display:none; }
+  main .rulerpop input { width:64px; }
   main .hint { position:absolute; left:10px; bottom:10px; right:10px; color:#ccc; font-size:12px; pointer-events:none; }
   main .hint span { background:rgba(0,0,0,.7); padding:3px 8px; border-radius:4px; }
   main .empty { position:absolute; inset:0; display:grid; place-items:center; color:#999; padding:24px; text-align:center; }
@@ -142,8 +146,6 @@
     <span class="lab">µm/px</span>
     <input type="number" id="scale" step="0.0001" min="0" placeholder="0.7194" style="width:76px">
     <button id="scaleRuler" title="Measure the scale on the image: drag along the scale bar, then type its length (M)">📏</button>
-    <span id="rulerBox" hidden>= <input type="number" id="rulerUm" min="0" step="any" value="100" style="width:58px" title="The scale bar's length"> µm
-      <button id="rulerSet">Set</button></span>
     <button id="scaleAll" title="This scale for every image">All</button><button id="scaleImg" title="This scale for this image only">Image</button>
   </div>
   <div class="grp" data-proj hidden>
@@ -172,6 +174,9 @@
 
 <main id="view">
   <canvas id="cv"></canvas>
+  <div id="rulerBox" class="rulerpop" hidden>Scale bar <b id="rulerPx"></b> =
+    <input type="number" id="rulerUm" min="0" step="any" value="100" title="The scale bar's length in µm"> µm
+    <button id="rulerSet">Set</button><button id="rulerX" title="Cancel (Esc)">✕</button></div>
   <div class="empty" id="empty">Pick a project, add images, then Outline new images.</div>
   <div class="hint"><span>drag = draw · click = add · ⌘/Ctrl = remove · Space-drag = move · scroll = zoom · F = fit · O = outlines · M = measure scale · Shift-A = aerenchyma · Shift-F = cell files · , . = images · Shift-S = save + next</span></div>
 </main>
@@ -485,6 +490,7 @@ function draw() {
     ctx.strokeStyle = S.pen.remove ? "#ff5a5a" : COLOR[S.target];
     ctx.stroke(); ctx.setLineDash([]);
   }
+  placeRuler();
 }
 function drawSectors() {                          // as in the desktop app: excluded arcs grey on the cortex only
   const { s, x, y } = S.view, { centre: [cy, cx], arcs, rst, rrt } = S.sectors;   // (stele edge -> root edge),
@@ -581,6 +587,14 @@ function rulerMode(on) {
   $("scaleMsg").textContent = on ? "Drag along the scale bar (Esc cancels)." : "";
   draw();
 }
+function placeRuler() {                          // the length box sits just under the middle of the drawn line
+  const box = $("rulerBox");
+  if (box.hidden || !S.ruler || !S.ruler.a) return;
+  const { s, x, y } = S.view, [ay, ax] = S.ruler.a, [by, bx] = S.ruler.b, W = cv.clientWidth, H = cv.clientHeight;
+  const mx = x + (ax + bx) / 2 * s, my = y + Math.max(ay, by) * s + 14;
+  box.style.left = Math.max(6, Math.min(W - box.offsetWidth - 6, mx - box.offsetWidth / 2)) + "px";
+  box.style.top = Math.max(6, Math.min(H - box.offsetHeight - 40, my)) + "px";
+}
 const rulerLen = () => S.ruler && S.ruler.a && S.ruler.b ? Math.hypot(S.ruler.b[0] - S.ruler.a[0], S.ruler.b[1] - S.ruler.a[1]) : 0;
 function rulerSnap(a, b, free) {
   if (free) return b;
@@ -599,7 +613,8 @@ $("rulerSet").onclick = () => {
   rulerMode(false);
   $("scaleMsg").textContent = `${um} µm over ${px.toFixed(1)} px = ${v} µm/px. Press All (every image) or Image (this one).`;
 };
-$("rulerUm").onkeydown = e => { if (e.key === "Enter") $("rulerSet").click(); };
+$("rulerUm").onkeydown = e => { if (e.key === "Enter") $("rulerSet").click(); if (e.key === "Escape") rulerMode(false); };
+$("rulerX").onclick = () => rulerMode(false);
 try { const u = localStorage.getItem("csa.rulerUm"); if (u) $("rulerUm").value = u; } catch (_) {}
 
 cv.addEventListener("pointerdown", e => {
@@ -626,7 +641,8 @@ cv.addEventListener("pointerup", () => {
   if (S.ruler && S.ruler.drag) {
     S.ruler.drag = false;
     if (rulerLen() < 5) { $("scaleMsg").textContent = "Too short: drag from one end of the scale bar to the other."; return; }
-    $("rulerBox").hidden = false; $("rulerUm").focus(); $("rulerUm").select();
+    $("rulerPx").textContent = `${rulerLen().toFixed(1)} px`;
+    $("rulerBox").hidden = false; placeRuler(); $("rulerUm").focus(); $("rulerUm").select();
     $("scaleMsg").textContent = `${rulerLen().toFixed(1)} px. Type the bar's length, then Set.`; draw(); return;
   }
   if (S.pan) { S.pan = null; if (!S.space) cv.classList.remove("pan"); return; }
