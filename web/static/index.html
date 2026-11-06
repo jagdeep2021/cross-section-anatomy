@@ -693,11 +693,15 @@ $("invGo").onclick = async () => {
   $("invMsg").textContent = ""; $("invOut").hidden = true;
   try {
     const email = $("invEmail").value.trim();
-    const r = await api("/api/people/invite", form({ email }));
-    $("invLink").value = `${location.origin}/login?token=${r.token}`; $("invOut").hidden = false;
-    $("invMsg").textContent = `Link for ${email}: send it to them privately. It works in one browser; a new invite replaces it.`;
+    $("invGo").disabled = true; $("invMsg").textContent = "Sending…";
+    const r = await api("/api/people/invite", form({ email, site: location.origin }));
+    $("invLink").value = r.link; $("invOut").hidden = false;
+    $("invMsg").textContent = r.emailed
+      ? `Emailed the login link to ${email} (check their spam folder if it doesn't arrive). A new invite replaces it.`
+      : `Email not sent: copy this link and send it to ${email} yourself. A new invite replaces it.`;
     $("invEmail").value = ""; await loadPeople();
   } catch (e) { $("invMsg").textContent = e.message || String(e); }
+  $("invGo").disabled = false;
 };
 $("invCopy").onclick = () => {
   navigator.clipboard.writeText($("invLink").value).then(() => { $("invCopy").textContent = "Copied"; },
