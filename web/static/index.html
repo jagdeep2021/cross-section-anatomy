@@ -21,6 +21,8 @@
   header h1 { font-size:16px; margin:0; font-weight:600; }
   header h1 .sub { font-size:13px; font-weight:400; color:var(--muted); margin-left:6px; }
   header .who { margin-left:auto; color:var(--muted); font-size:13px; }
+  header .help { color:var(--muted); font-size:13px; }
+  header .help:hover { color:inherit; }
   .side { background:var(--panel); overflow:auto; padding:14px; border-left:1px solid var(--line); }
   /* top bar: every control, left to right in the order of the work (as in the desktop app) */
   nav { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:6px; padding:7px 10px; background:var(--panel);
@@ -125,8 +127,14 @@
   <span class="who" id="who"></span>
   <details class="people" style="margin-left:0" id="peoplePanel" hidden><summary>People</summary>
     <div class="pop"><ul class="list" id="peopleList"></ul>
-    <div class="msg">Approve only people you know: anyone can type any email.</div></div>
+    <div class="msg">Approve only people you know: anyone can type any email.</div>
+    <div class="row" style="display:flex;gap:6px;margin-top:8px"><input type="text" id="invEmail" placeholder="email to invite" style="flex:1;min-width:0">
+      <button class="primary" id="invGo" title="Make a personal login link for this person (replaces any link they had)">Invite</button></div>
+    <div class="row" id="invOut" style="display:flex;gap:6px;margin-top:6px" hidden><input type="text" id="invLink" readonly style="flex:1;min-width:0">
+      <button id="invCopy">Copy</button></div>
+    <div class="msg" id="invMsg"></div></div>
   </details>
+  <a class="help" href="/help" target="_blank" rel="noopener" title="How to use Rooh (PDF)">Help</a>
 </header>
 
 <nav>
@@ -681,6 +689,20 @@ addEventListener("keyup", e => { if (e.key === " ") { S.space = false; if (!S.pa
 setTarget(S.target);
 
 // ---------------------------------------------------------------- people (admins)
+$("invGo").onclick = async () => {
+  $("invMsg").textContent = ""; $("invOut").hidden = true;
+  try {
+    const email = $("invEmail").value.trim();
+    const r = await api("/api/people/invite", form({ email }));
+    $("invLink").value = `${location.origin}/login?token=${r.token}`; $("invOut").hidden = false;
+    $("invMsg").textContent = `Link for ${email}: send it to them privately. It works in one browser; a new invite replaces it.`;
+    $("invEmail").value = ""; await loadPeople();
+  } catch (e) { $("invMsg").textContent = e.message || String(e); }
+};
+$("invCopy").onclick = () => {
+  navigator.clipboard.writeText($("invLink").value).then(() => { $("invCopy").textContent = "Copied"; },
+    () => { $("invLink").select(); });
+};
 async function loadPeople() {
   const ps = await api("/api/people");
   ps.sort((a, b) => a.approved - b.approved || a.email.localeCompare(b.email));
@@ -713,7 +735,8 @@ function gate(html) { document.body.innerHTML = `<header><img src="/icon.png" al
 
 function askForAccess() {
   gate(`<h2>Ask for access</h2>
-    <p class="muted">Jagdeep approves each person. Use this same browser afterwards: it remembers you.</p>
+    <p class="muted">Jagdeep approves each person. Use this same browser afterwards: it remembers you.
+      <a href="/help" target="_blank" rel="noopener">How Rooh works (PDF)</a></p>
     <label>Your name<input type="text" id="jName" autocomplete="name"></label>
     <label>Your email<input type="text" id="jEmail" autocomplete="email"></label>
     <button class="primary" id="jGo">Ask for access</button><div class="msg err" id="err"></div>`);

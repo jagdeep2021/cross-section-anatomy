@@ -91,7 +91,11 @@ Live: https://jagdeep2021--rooh.modal.run (deployed from `cloud.py` with
 `modal deploy cloud.py`; a CPU machine serves the page, measuring goes to the GPU function, projects live on the
 Modal volume `csa-web-data`, saved after every change).
 Access: share the site address; a new person types name + email and asks, an admin approves them in the People
-panel (that browser then works). Or send a personal login link: `python cloud.py invite <email> [--admin]`.
+panel (that browser then works). Or send a personal login link: People panel → type the email → Invite → Copy
+(re-inviting replaces their old link; your own email is refused), or `python cloud.py invite <email> [--admin]`.
+Help PDF: the header's Help link (also on the access page) serves `web/static/help.pdf`. Its source is
+`web/static/help.html`; after editing it, rebuild the PDF with headless Chrome:
+`"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --no-pdf-header-footer --virtual-time-budget=5000 --print-to-pdf="$PWD/web/static/help.pdf" "file://$PWD/web/static/help.html"`.
 Anyone can type any email, so approve only people you know.
 Tested 2026-10-31: login, project, upload, measure, Make results, download.
 Layout as the desktop: one top bar in work order (project, add images, Outline, µm/px, image ▾ ‹ › Save + next,

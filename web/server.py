@@ -354,6 +354,12 @@ def icon():
     return FileResponse(STATIC.parent.parent / "icon.png")
 
 
+@app.get("/help")
+def help_page():                                 # public: the access page links to it too. help.pdf is made from
+    return FileResponse(STATIC / "help.pdf", media_type="application/pdf",   # help.html (see README)
+                        headers={"Cache-Control": "no-cache", "Content-Disposition": 'inline; filename="Rooh_Help.pdf"'})
+
+
 @app.get("/api/me")
 def me(u: dict = Depends(_signed_in)):
     return {"email": u["email"], "name": u.get("name", ""), "admin": u.get("admin", False),
@@ -409,6 +415,18 @@ def people(_: dict = Depends(admin)):
     return [{"id": h[:16], "email": u["email"], "name": u.get("name", ""), "admin": u.get("admin", False),
              "approved": u.get("approved", True), "requested": u.get("requested", "")}
             for h, u in _users().items()]
+
+
+@app.post("/api/people/invite")
+def invite_person(email: str = Form(""), make_admin: bool = Form(False), me: dict = Depends(admin)):
+    """An admin makes a personal login link from the People panel (same as `cloud.py invite`). Re-inviting
+    replaces that person's old link, so an admin's own email is refused: it would log them out."""
+    email = email.strip().lower()[:120]
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise HTTPException(400, "Type an email address.")
+    if email == me["email"]:
+        raise HTTPException(400, "That is your own login: inviting it would replace your link.")
+    return {"token": invite(email, make_admin)}   # the page builds the link from its own address (https)
 
 
 @app.post("/api/people/{pid}/{action}")
