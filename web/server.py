@@ -142,6 +142,9 @@ def _uid(u: dict) -> str:
 
 
 # ---------------------------------------------------------------- projects
+# Each person's projects live in projects/<their uid>/. An admin also sees everyone else's, named
+# "<owner uid>~<project>" (_slug never keeps a ~, so no own project can look like one).
+OTHER = "~"
 
 def _slug(name: str) -> str:
     s = re.sub(r"[^A-Za-z0-9._ -]", "", name).strip().replace(" ", "_")
@@ -156,6 +159,11 @@ def project_dir(u: dict, name: str) -> Path:
         if p is None:
             raise HTTPException(404, f"No project {name}: open its folder again.")
         return Path(p)
+    if OTHER in name:                    # "<owner>~<project>": someone else's project, admins only
+        owner, name = name.split(OTHER, 1)
+        if not u.get("admin") or not re.fullmatch(r"[a-z0-9_-][a-z0-9._-]*", owner):
+            raise HTTPException(404, "No such project.")
+        return DATA / "projects" / owner / _slug(name)
     return DATA / "projects" / _uid(u) / _slug(name)
 
 
@@ -479,7 +487,12 @@ def projects(u: dict = Depends(user)):
     if LOCAL["on"]:
         return sorted(n for n, p in _reg().items() if Path(p).is_dir())
     root = DATA / "projects" / _uid(u)
-    return sorted(p.name for p in root.iterdir() if p.is_dir()) if root.exists() else []
+    own = sorted(p.name for p in root.iterdir() if p.is_dir()) if root.exists() else []
+    if not u.get("admin") or not (DATA / "projects").exists():
+        return own
+    others = sorted(f"{o.name}{OTHER}{p.name}" for o in (DATA / "projects").iterdir()
+                    if o.is_dir() and o.name != _uid(u) for p in o.iterdir() if p.is_dir())
+    return own + others
 
 
 @app.post("/api/projects")
@@ -765,7 +778,7 @@ def delete_project(name: str, u: dict = Depends(user)):
     d = _project(u, name)
     if JOBS.get(str(d), {}).get("state") in ("queued", "running"):
         raise HTTPException(400, "This project is being measured: wait until it finishes.")
-    dest = DATA / "trash" / _uid(u) / f"{d.name}_{time.strftime('%Y-%m-%d_%H%M%S')}"
+    dest = DATA / "trash" / d.parent.name / f"{d.name}_{time.strftime('%Y-%m-%d_%H%M%S')}"
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(d), dest)
     return {"ok": True}

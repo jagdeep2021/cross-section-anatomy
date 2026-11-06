@@ -242,7 +242,14 @@ const enc = encodeURIComponent;
 // ---------------------------------------------------------------- projects
 async function loadProjects(pick) {
   const ps = await api("/api/projects");
-  $("projSel").innerHTML = '<option value="">– choose a project –</option>' + ps.map(p => `<option>${p}</option>`).join("");
+  // an admin also gets everyone else's projects as "<owner>~<project>": grouped under the owner
+  const esc = t => t.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const own = ps.filter(p => !p.includes("~")), byOwner = {};
+  ps.filter(p => p.includes("~")).forEach(p => { const [o, n] = p.split("~"); (byOwner[o] ||= []).push([p, n]); });
+  const opts = l => l.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
+  $("projSel").innerHTML = '<option value="">– choose a project –</option>' +
+    (Object.keys(byOwner).length ? `<optgroup label="Mine">${opts(own.map(p => [p, p]))}</optgroup>` : opts(own.map(p => [p, p]))) +
+    Object.entries(byOwner).map(([o, l]) => `<optgroup label="${esc(o.replace(/_(?=[^_]*$)/, "@"))}">${opts(l)}</optgroup>`).join("");
   if (pick) { $("projSel").value = pick; await openProject(pick); }
 }
 async function openProject(name) {

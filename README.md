@@ -93,6 +93,8 @@ Modal volume `csa-web-data`, saved after every change).
 Access: share the site address; a new person types name + email and asks, an admin approves them in the People
 panel (that browser then works). Or send a personal login link: People panel → type the email → Invite → Copy
 (re-inviting replaces their old link; your own email is refused), or `python cloud.py invite <email> [--admin]`.
+Admins see everyone's projects: the project list groups other people's under their email (opened, edited,
+measured and downloaded like your own; 🗑 moves one to its owner's trash). Others see only their own.
 Help PDF: the header's Help link (also on the access page) serves `web/static/help.pdf`. Its source is
 `web/static/help.html`; after editing it, rebuild the PDF with headless Chrome:
 `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --no-pdf-header-footer --virtual-time-budget=5000 --print-to-pdf="$PWD/web/static/help.pdf" "file://$PWD/web/static/help.html"`.
