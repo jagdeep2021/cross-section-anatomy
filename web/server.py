@@ -417,8 +417,34 @@ def people(_: dict = Depends(admin)):
             for h, u in _users().items()]
 
 
+def _mail_invite(to: str, link: str) -> bool:
+    """Email a new person their login link (same Gmail secret as _notify). False = not sent; the page then
+    shows the link to copy instead."""
+    user, pw = os.environ.get("GMAIL_USER"), os.environ.get("GMAIL_APP_PASSWORD")
+    if not (user and pw):
+        return False
+    import smtplib
+    from email.message import EmailMessage
+    m = EmailMessage()
+    m["From"], m["To"], m["Reply-To"] = user, to, os.environ.get("MAIL_TO", user)
+    m["Subject"] = "Your Rooh login link"
+    m.set_content("Jagdeep has given you access to Rooh, the lab's root cross-section tool.\n\n"
+                  f"Open this link in the browser you will use (Chrome or Firefox on a laptop):\n{link}\n\n"
+                  "That browser then stays signed in. The link is personal: don't forward it.\n"
+                  f"How to use Rooh: {link.split('/login')[0]}/help")
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as smtp:
+            smtp.login(user, pw)
+            smtp.send_message(m)
+        return True
+    except Exception as e:
+        print(f"[mail] invite not sent: {e}", flush=True)
+        return False
+
+
 @app.post("/api/people/invite")
-def invite_person(email: str = Form(""), make_admin: bool = Form(False), me: dict = Depends(admin)):
+def invite_person(email: str = Form(""), site: str = Form(""), make_admin: bool = Form(False),
+                  me: dict = Depends(admin)):
     """An admin makes a personal login link from the People panel (same as `cloud.py invite`). Re-inviting
     replaces that person's old link, so an admin's own email is refused: it would log them out."""
     email = email.strip().lower()[:120]
@@ -426,7 +452,10 @@ def invite_person(email: str = Form(""), make_admin: bool = Form(False), me: dic
         raise HTTPException(400, "Type an email address.")
     if email == me["email"]:
         raise HTTPException(400, "That is your own login: inviting it would replace your link.")
-    return {"token": invite(email, make_admin)}   # the page builds the link from its own address (https)
+    if not re.fullmatch(r"https?://[\w.:-]+", site):    # the page's own address, so the link is https on Modal
+        raise HTTPException(400, "Reload the page and try again.")
+    link = f"{site}/login?token={invite(email, make_admin)}"
+    return {"link": link, "emailed": _mail_invite(email, link)}
 
 
 @app.post("/api/people/{pid}/{action}")
