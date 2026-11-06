@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Source of help.pdf (served at /help). After editing, rebuild it: see README, 'Help PDF'. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="/icon.png">
+<title>Rooh · Help</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,600&display=swap">
+<style>
+/* Layout: one narrow reading column; numbered steps (it is a real sequence); key reference at the end */
+:root {
+  --bg: #f6f7f5; --fg: #1d2420; --muted: #5d6862; --line: #d9ded9; --card: #ffffff;
+  --accent: #2f6b4f; --accent-ink: #ffffff; --kbd: #eceeea;
+  --display: "Fraunces", Georgia, serif;
+  --body: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #141917; --fg: #e4e9e5; --muted: #9aa69f; --line: #2c3530; --card: #1b221e;
+  --accent: #7cc39f; --accent-ink: #0f1512; --kbd: #252d29; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #141917; --fg: #e4e9e5; --muted: #9aa69f; --line: #2c3530; --card: #1b221e;
+  --accent: #7cc39f; --accent-ink: #0f1512; --kbd: #252d29; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.6 var(--body); }
+.wrap { max-width: 680px; margin: 0 auto; padding-block: 40px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 28px; }
+h1 { font: 600 34px/1.1 var(--display); margin: 0; text-wrap: balance; }
+h1 .pa { color: var(--muted); font-weight: 400; font-size: 22px; margin-left: 8px; }
+.lede { margin: 6px 0 0; color: var(--muted); }
+.link { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--line);
+  border-radius: 8px; padding: 12px 14px; }
+.link a { font: 500 15px var(--mono); color: var(--accent); word-break: break-all; }
+.link span { color: var(--muted); font-size: 13px; }
+h2 { font: 600 12px var(--body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; }
+ol.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; counter-reset: s; }
+ol.steps > li { counter-increment: s; display: grid; grid-template-columns: 30px 1fr; gap: 12px; }
+ol.steps > li::before { content: counter(s); font: 600 14px var(--mono); color: var(--accent-ink); background: var(--accent);
+  width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; margin-top: 1px; }
+ol.steps b.t { display: block; font-weight: 600; }
+ol.steps p, ol.steps ul { margin: 2px 0 0; min-width: 0; }
+ol.steps ul { padding-left: 18px; }
+.btn { font: 500 13px var(--body); background: var(--kbd); border: 1px solid var(--line); border-radius: 5px; padding: 0 6px; white-space: nowrap; }
+kbd { font: 500 12px var(--mono); background: var(--kbd); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; }
+.tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px 16px; margin-top: 8px; padding: 0; list-style: none; }
+.tools li { display: flex; align-items: baseline; gap: 8px; font-size: 14px; }
+.tools i { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 10px; transform: translateY(1px); }
+.note { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+.note ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+td { padding: 5px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+td:first-child { width: 42%; padding-right: 12px; }
+.foot { color: var(--muted); font-size: 13px; }
+@media print { @page { size: letter; margin: 0.5in } .wrap { padding-block: 0 } body { -webkit-print-color-adjust: exact; print-color-adjust: exact } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Rooh <span class="pa">ਰੂਹ</span></h1>
+    <p class="lede">Outlines root cross-sections automatically, lets you fix them by hand, and gives you the traits as Excel. Use a laptop or desktop in Chrome or Firefox (you need a keyboard and mouse).</p>
+  </header>
+
+  <div class="link">
+    <a href="https://jagdeep2021--rooh.modal.run" target="_blank" rel="noopener">jagdeep2021--rooh.modal.run</a>
+    <span>the website; the desktop app is the same page</span>
+  </div>
+
+  <section>
+    <h2>Steps</h2>
+    <ol class="steps">
+      <li><div><b class="t">Ask for access (once)</b>
+        <p>Type your name and email, click <span class="btn">Ask for access</span>. Jagdeep approves it, then you reload the page. (Not needed in the desktop app.) Keep using the <em>same browser</em>: it remembers you. A private window or cleared cookies means asking again.</p></div></li>
+
+      <li><div><b class="t">Make a project</b>
+        <p>Click <span class="btn">+</span> at the top, type a name (e.g. the experiment ID), <span class="btn">Create</span>.</p></div></li>
+
+      <li><div><b class="t">Add images</b>
+        <p><span class="btn">Folder…</span> uploads a whole folder; each sub-folder becomes a group (genotype, treatment) in the results. <span class="btn">Files…</span> adds single images. TIF, PNG or JPG. Don't close the tab until the upload finishes.</p></div></li>
+
+      <li><div><b class="t">Outline</b>
+        <p>Uploading does <b>not</b> start this: when the upload finishes, click <span class="btn">Outline</span>. The server finds cells, stele, vessels and root edge, about 10 s per image. If you add more images later, click it again; it only does the new ones and leaves your edits alone.</p></div></li>
+
+      <li><div><b class="t">Set the scale</b>
+        <p>Type the µm per pixel in the box, or click <span class="btn">📏</span> (or <kbd>M</kbd>), drag along the scale bar and type its length. Then <span class="btn">All</span> for every image, or <span class="btn">Image</span> for this one only. Without a scale, areas come out in pixels.</p></div></li>
+
+      <li><div><b class="t">Check every image</b>
+        <p>Pick what to fix in the Edit panel (or press its number), then: <b>drag</b> draws, <b>click</b> adds, hold <kbd>⌘</kbd>/<kbd>Ctrl</kbd> to remove.</p>
+        <ul class="tools">
+          <li><i style="background:rgb(80,255,120)"></i><span><kbd>1</kbd> Cell: click inside to fill</span></li>
+          <li><i style="background:rgb(255,60,60)"></i><span><kbd>2</kbd> Vessel (metaxylem)</span></li>
+          <li><i style="background:rgb(0,220,255)"></i><span><kbd>3</kbd> Stele: draw the outline</span></li>
+          <li><i style="background:#999"></i><span><kbd>4</kbd> Sector: leave out damage</span></li>
+          <li><i style="background:rgb(255,220,0)"></i><span><kbd>5</kbd> Root: draw the outline</span></li>
+          <li><i style="background:#ff8c00"></i><span><kbd>6</kbd> Aerenchyma lacunae</span></li>
+        </ul>
+        <p style="margin-top:8px">Get the <b>stele right first</b>: cell file numbers and positions are counted out from it. When the image looks right, <span class="btn">Save + next</span> (<kbd>Shift</kbd>+<kbd>S</kbd>). In the image list ● = checked, ○ = not yet.</p></div></li>
+
+      <li><div><b class="t">Make results, then Download</b>
+        <p><span class="btn">Make results</span> builds the Excel files and group graphs; <span class="btn">Download</span> gives you a zip. Re-run it after any more edits; never edit the Excel by hand.</p></div></li>
+    </ol>
+  </section>
+
+  <section class="note">
+    <h2>Rules that matter for the numbers</h2>
+    <ul>
+      <li><b>Leave out technical damage only</b> (torn, folded, oblique, out of focus, debris). Aerenchyma, collapsed or odd cells are biology: keep them, they get measured.</li>
+      <li>To leave out damage: Sector tool, drag around the stele from one side of the damage to the other, and pick the reason. <kbd>⌘</kbd>/<kbd>Ctrl</kbd>-click a grey arc to bring it back.</li>
+      <li>Aerenchyma: orange = counted. If an orange patch is really cells the outlining missed, fix it with the Cell tool rather than un-counting it.</li>
+      <li>Don't delete a project (🗑) without asking Jagdeep.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Moving around</h2>
+    <table>
+      <tr><td><kbd>Space</kbd>-drag or right-drag</td><td>move the image</td></tr>
+      <tr><td>scroll</td><td>zoom</td></tr>
+      <tr><td><kbd>F</kbd></td><td>fit the image to the window</td></tr>
+      <tr><td><kbd>O</kbd></td><td>show / hide outlines</td></tr>
+      <tr><td><kbd>,</kbd> <kbd>.</kbd></td><td>previous / next image (also saves edits)</td></tr>
+      <tr><td><kbd>Shift</kbd>+<kbd>A</kbd> · <kbd>Shift</kbd>+<kbd>F</kbd></td><td>aerenchyma layer · colour cells by file number</td></tr>
+    </table>
+  </section>
+
+  <p class="foot">Something wrong? Send Jagdeep the project name, the image name and a screenshot.</p>
+</div>
+</body>
+</html>
